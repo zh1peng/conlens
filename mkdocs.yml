@@ -1,9 +1,5 @@
 site_name: conlens
-site_url: https://zh1peng.github.io/conlens/
 repo_url: https://github.com/zh1peng/conlens
-extra:
-  version:
-    provider: mike
 theme:
   name: mkdocs
 plugins:
