@@ -1,0 +1,24 @@
+site_name: conlens
+site_url: https://zh1peng.github.io/conlens/
+repo_url: https://github.com/zh1peng/conlens
+extra:
+  version:
+    provider: mike
+theme:
+  name: mkdocs
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: false
+            members_order: source
+nav:
+  - Home: index.md
+  - Concepts: concepts.md
+  - How LENS works: algorithm.md
+  - Tutorials: tutorials.md
+  - Interpretation: interpretation.md
+  - API: api.md
+  - Development: development.md
