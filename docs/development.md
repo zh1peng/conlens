@@ -19,7 +19,11 @@
   results independent of worker scheduling.
 - Consensus stability thresholds are mandatory user inputs.
 
-## Release checks
+## Package checks
 
 Run `ruff check .`, `pytest --cov=conlens --cov-fail-under=90`, `python -m build`,
 and `twine check dist/*`. CI repeats linting and tests on Linux, macOS, and Windows.
+
+PyPI, TestPyPI, Zenodo, GitHub Release/tag, and public documentation deployment are
+out of scope unless the user provides a new explicit authorization. Package checks
+must not upload artifacts or request publishing credentials.

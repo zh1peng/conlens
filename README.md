@@ -7,16 +7,18 @@ It uses every valid edge in a signed ranked list. It does not threshold edge-wis
 statistics, silently choose a null model, or treat leading edges as individually
 significant edges.
 
-## Install
+## Install from this private repository
 
 ```bash
-pip install conlens
+git clone https://github.com/zh1peng/conlens.git
+cd conlens
+pip install .
 ```
 
 Nilearn integration is optional:
 
 ```bash
-pip install "conlens[nilearn]"
+pip install ".[nilearn]"
 ```
 
 ## Minimal analysis
