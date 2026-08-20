@@ -86,8 +86,11 @@ def compute_running_sum(
     increments = np.full(len(values), -1.0 / (len(values) - n_hits))
     increments[membership] = hit_weights
     profile = np.concatenate(([0.0], np.cumsum(increments)))
-    if abs(profile[-1]) > tolerance:
-        raise ArithmeticError(f"running-sum endpoint {profile[-1]} exceeds tolerance {tolerance}")
+    endpoint_tolerance = max(tolerance, 8 * np.finfo(float).eps * len(values))
+    if abs(profile[-1]) > endpoint_tolerance:
+        raise ArithmeticError(
+            f"running-sum endpoint {profile[-1]} exceeds tolerance {endpoint_tolerance}"
+        )
     profile[-1] = 0.0
     return profile, zero_weight_fallback
 
@@ -295,6 +298,10 @@ def lens_enrich(
         "directed": directed,
         "diagonal": diagonal,
         "ranking_statistic_name": statistic_name,
+        "analysis_signature": {
+            "kind": "edge_statistics",
+            "ranking_statistic_name": statistic_name,
+        },
         "positive_direction": positive_direction,
         "weight_exponent": weight,
         "score_type": score_type,

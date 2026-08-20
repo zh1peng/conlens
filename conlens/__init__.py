@@ -33,7 +33,7 @@ from .leading import (
     identify_leading_hubs,
     summarize_leading_network,
 )
-from .results import LeadingNetwork, LensResult, LensSetResult
+from .results import LeadingNetwork, LensResult, LensSetResult, LensStabilityResult
 from .sets import (
     make_custom_edge_sets,
     make_hemisphere_sets,
@@ -41,13 +41,19 @@ from .sets import (
     make_within_network_sets,
     validate_edge_sets,
 )
-from .stability import bootstrap_lens, consensus_network, summarize_stability
+from .stability import (
+    bootstrap_lens,
+    consensus_network,
+    summarize_bootstrap_stability,
+    summarize_stability,
+)
 
 __all__ = [
     "LeadingNetwork",
     "LensAnalysis",
     "LensResult",
     "LensSetResult",
+    "LensStabilityResult",
     "SubjectLensAnalysis",
     "__version__",
     "adjust_pvalues",
@@ -78,6 +84,7 @@ __all__ = [
     "provided_null",
     "rank_edges",
     "summarize_leading_network",
+    "summarize_bootstrap_stability",
     "summarize_stability",
     "validate_connectome",
     "validate_edge_sets",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -11,8 +11,14 @@ import pandas as pd
 from .core import lens_enrich
 from .data import matrix_to_edges, validate_connectome
 from .inference import apply_null_inference, freedman_lane_null, label_permutation_null
-from .results import LensResult
-from .stability import bootstrap_lens
+from .results import LensResult, LensStabilityResult
+from .stability import (
+    _validate_compatible_result,
+    _validate_complete_result,
+    _validate_stability_options,
+    bootstrap_lens,
+    summarize_bootstrap_stability,
+)
 from .stats import edge_correlation, glm_statistic, two_group_ttest
 
 
@@ -90,7 +96,12 @@ class SubjectLensAnalysis:
         strata: Iterable[Any] | None = None,
         **options: Any,
     ) -> list[LensResult]:
-        """Bootstrap subjects while keeping callback-owned labels/covariates aligned."""
+        """Generate descriptive statistic-bootstrap LENS results.
+
+        This low-level method does not rerun subject-level null inference. Use
+        :meth:`bootstrap_stability` when each replicate must repeat inference and
+        BH adjustment.
+        """
         parameters = {**self.defaults, **options, "directed": self.directed}
         return bootstrap_lens(
             self.edge_template,
@@ -102,6 +113,127 @@ class SubjectLensAnalysis:
             strata=strata,
             **parameters,
         )
+
+    def bootstrap_stability(
+        self,
+        observed: LensResult,
+        refit: Callable[[SubjectLensAnalysis, np.ndarray, int], LensResult],
+        *,
+        n_bootstraps: int = 1000,
+        random_state: int | None = None,
+        strata: Iterable[Any] | None = None,
+        n_jobs: int = 1,
+        significance_alpha: float = 0.05,
+        interval_level: float = 0.95,
+        core_threshold: float = 0.50,
+        min_same_direction: int = 30,
+        keep_bootstrap_results: bool = False,
+    ) -> LensStabilityResult:
+        """Run a full subject bootstrap and summarize sampling stability.
+
+        ``refit`` receives a resampled ``SubjectLensAnalysis``, the original row
+        indices in that sample, and a replicate-specific random seed. It must rerun
+        the complete model, null inference, and BH adjustment and return a
+        ``LensResult``. Supplying ``strata`` samples subjects within each stratum;
+        combine factors such as site and group before passing them.
+        """
+        if not callable(refit):
+            raise TypeError("refit must be callable")
+        if not isinstance(n_bootstraps, int) or n_bootstraps < 1:
+            raise ValueError("n_bootstraps must be a positive integer")
+        if not isinstance(n_jobs, int) or n_jobs == 0:
+            raise ValueError("n_jobs must be a nonzero integer")
+        _validate_stability_options(
+            significance_alpha,
+            interval_level,
+            core_threshold,
+            min_same_direction,
+        )
+        observed_sets = _validate_complete_result(observed, "observed result")
+
+        strata_codes = None
+        n_strata = None
+        if strata is not None:
+            labels = list(strata)
+            if len(labels) != len(self.data):
+                raise ValueError("strata must contain one value per subject")
+            if any(_contains_missing(label) for label in labels):
+                raise ValueError("strata cannot contain missing values")
+            series = pd.Series(labels, dtype=object)
+            try:
+                strata_codes, unique_strata = pd.factorize(series, sort=False)
+            except TypeError as exc:
+                raise ValueError("strata values must be hashable") from exc
+            n_strata = len(unique_strata)
+
+        rng = np.random.default_rng(random_state)
+        all_indices = np.arange(len(self.data))
+        draws: list[tuple[int, np.ndarray, int]] = []
+        for replicate_index in range(n_bootstraps):
+            if strata_codes is None:
+                indices = rng.choice(all_indices, size=len(all_indices), replace=True)
+            else:
+                pieces = []
+                for code in range(int(strata_codes.max()) + 1):
+                    members = all_indices[strata_codes == code]
+                    pieces.append(rng.choice(members, size=len(members), replace=True))
+                indices = np.concatenate(pieces)
+            fit_seed = int(rng.integers(0, 2**32, dtype=np.uint64))
+            draws.append((replicate_index, indices, fit_seed))
+
+        def run_one(task: tuple[int, np.ndarray, int]) -> LensResult:
+            replicate_index, indices, fit_seed = task
+            sample = self._resampled(indices)
+            try:
+                result = refit(sample, indices.copy(), fit_seed)
+            except Exception as exc:
+                raise RuntimeError(f"bootstrap replicate {replicate_index} failed") from exc
+            if not isinstance(result, LensResult):
+                raise TypeError(f"bootstrap replicate {replicate_index} did not return LensResult")
+            return result
+
+        first_result = run_one(draws[0])
+        _validate_compatible_result(observed, observed_sets, first_result, 0)
+        remaining_draws = draws[1:]
+        if n_jobs == 1:
+            results = [first_result, *(run_one(task) for task in remaining_draws)]
+        else:
+            from joblib import Parallel, delayed
+
+            remaining_results = Parallel(n_jobs=n_jobs, prefer="threads")(
+                delayed(run_one)(task) for task in remaining_draws
+            )
+            results = [first_result, *remaining_results]
+
+        stability = summarize_bootstrap_stability(
+            observed,
+            results,
+            significance_alpha=significance_alpha,
+            interval_level=interval_level,
+            core_threshold=core_threshold,
+            min_same_direction=min_same_direction,
+            keep_bootstrap_results=keep_bootstrap_results,
+        )
+        stability.metadata.update(
+            {
+                "resampling_method": "subject" if strata_codes is None else "stratified_subject",
+                "n_subjects": len(self.data),
+                "n_strata": n_strata,
+                "random_seed": random_state,
+                "n_jobs": n_jobs,
+            }
+        )
+        return stability
+
+    def _resampled(self, indices: np.ndarray) -> SubjectLensAnalysis:
+        sample = object.__new__(SubjectLensAnalysis)
+        sample.edge_template = self.edge_template.copy()
+        sample.data = self.data[indices].copy()
+        sample.edge_sets = {name: set(members) for name, members in self.edge_sets.items()}
+        sample.directed = self.directed
+        sample.defaults = self.defaults.copy()
+        sample.result_ = None
+        return sample
 
     def two_group(
         self,
@@ -122,6 +254,10 @@ class SubjectLensAnalysis:
         low_group, high_group = unique_groups.tolist()
         parameters.setdefault("positive_direction", f"{high_group!r} > {low_group!r}")
         result = lens_enrich(edges, self.edge_sets, null_method=None, **parameters)
+        result.metadata["analysis_signature"] = {
+            "kind": "two_group",
+            "group_levels": [repr(low_group), repr(high_group)],
+        }
         if null_method is None:
             self.result_ = result
             return result
@@ -190,6 +326,12 @@ class SubjectLensAnalysis:
         parameters = {**self.defaults, **options, "directed": self.directed}
         parameters.setdefault("positive_direction", "positive tested contrast")
         result = lens_enrich(edges, self.edge_sets, null_method=None, **parameters)
+        result.metadata["analysis_signature"] = {
+            "kind": "glm",
+            "n_tested_columns": tested.shape[1],
+            "n_nuisance_columns": nuisance.shape[1],
+            "contrast_vector": c.tolist(),
+        }
         if null_method is None:
             self.result_ = result
             return result
@@ -243,6 +385,10 @@ class SubjectLensAnalysis:
         parameters = {**self.defaults, **options, "directed": self.directed}
         parameters.setdefault("positive_direction", "positive phenotype association")
         result = lens_enrich(edges, self.edge_sets, null_method=None, **parameters)
+        result.metadata["analysis_signature"] = {
+            "kind": "phenotype",
+            "statistic_function": _callable_identifier(statistic_function),
+        }
         if null_method is None:
             self.result_ = result
             return result
@@ -280,3 +426,15 @@ def _block_summary(blocks: Iterable[Any] | None) -> dict[str, int] | None:
         return None
     values = np.asarray(list(blocks))
     return {"n_blocks": int(len(np.unique(values))), "n_observations": int(len(values))}
+
+
+def _callable_identifier(function: Callable[..., Any]) -> str:
+    module = getattr(function, "__module__", type(function).__module__)
+    name = getattr(function, "__qualname__", type(function).__qualname__)
+    return f"{module}.{name}"
+
+
+def _contains_missing(value: Any) -> bool:
+    if isinstance(value, (list, tuple)):
+        return any(_contains_missing(component) for component in value)
+    return bool(np.asarray(pd.isna(value), dtype=bool).any())

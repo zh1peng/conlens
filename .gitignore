@@ -10,4 +10,7 @@ htmlcov/
 build/
 dist/
 site/
+node_modules/
+website/.vitepress/cache/
+website/.vitepress/dist/
 .venv/

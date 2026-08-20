@@ -1,4 +1,19 @@
-# conlens
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/conlens-logo-on-white.png">
+    <img src="docs/assets/brand/conlens-logo.png" alt="ConLens logo" width="420">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://zh1peng.github.io/conlens/">中文文档</a>
+  ·
+  <a href="https://zh1peng.github.io/conlens/en/">English</a>
+  ·
+  <a href="https://github.com/zh1peng/conlens">GitHub</a>
+</p>
+
+# ConLens
 
 `conlens` is a transparent, reproducible, modality-agnostic implementation of LENS
 (Leading-edge Network Set enrichment) for ranked connectome-wide statistics.
@@ -7,7 +22,7 @@ It uses every valid edge in a signed ranked list. It does not threshold edge-wis
 statistics, silently choose a null model, or treat leading edges as individually
 significant edges.
 
-## Install from this private repository
+## Install
 
 ```bash
 git clone https://github.com/zh1peng/conlens.git
@@ -59,6 +74,7 @@ inferred = lens_enrich(
     null_method="edge_permutation",
     n_permutations=10_000,
     random_state=42,
+    positive_direction="case > control",
 )
 ```
 
@@ -66,8 +82,25 @@ The edge-label null is competitive and does **not** preserve shared-node,
 topological, spatial, or edge-covariance dependence. Use subject-level label
 permutation or Freedman–Lane where the design permits it.
 
+## Full-pipeline bootstrap stability
+
+For subject-level analyses, `SubjectLensAnalysis.bootstrap_stability` resamples
+subjects and calls a user-supplied `refit` function for every replicate. That
+function must repeat the edge model, null inference, LENS tests, and BH adjustment;
+the returned `LensStabilityResult` separates set detection/direction stability from
+conditional and full-pipeline leading-edge stability. The older
+`bootstrap_lens`/`summarize_stability` workflow remains available for descriptive,
+ungated localization sensitivity.
+
+Bootstrap frequencies and their Monte Carlo intervals are sampling-sensitivity
+summaries, not edge-truth probabilities, FDP guarantees, or exact future-study
+replication probabilities. See the [stability tutorial](docs/tutorials.md#8-bootstrap-stability)
+for the complete refit callback and supported resampling schemes.
+
 See [Concepts](docs/concepts.md), [How LENS works](docs/algorithm.md),
 [Tutorials](docs/tutorials.md), and the [Interpretation guide](docs/interpretation.md).
+The Chinese-first VitePress documentation is available at
+[zh1peng.github.io/conlens](https://zh1peng.github.io/conlens/).
 
 ## CLI
 

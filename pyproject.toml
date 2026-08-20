@@ -37,11 +37,15 @@ dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.5", "mypy>=1.8", "build>=1.0",
 conlens = "conlens.cli:main"
 
 [project.urls]
-Documentation = "https://github.com/zh1peng/conlens/tree/main/docs"
+Documentation = "https://zh1peng.github.io/conlens/"
 Repository = "https://github.com/zh1peng/conlens"
 
 [tool.hatch.build.targets.wheel]
+core-metadata-version = "2.4"
 packages = ["conlens"]
+
+[tool.hatch.build.targets.sdist]
+core-metadata-version = "2.4"
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers --strict-config"

@@ -17,7 +17,9 @@
 - Subject connectomes are converted once to a shared subject-by-edge matrix.
 - Parallel edge permutation spawns one seed per replicate before dispatch, making
   results independent of worker scheduling.
-- Consensus stability thresholds are mandatory user inputs.
+- Thresholds for the legacy descriptive `consensus_network` utility remain mandatory
+  user inputs. Full-pipeline bootstrap cores use the explicit `core_threshold`
+  recorded in `LensStabilityResult.metadata`.
 
 ## Package checks
 

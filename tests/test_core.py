@@ -33,6 +33,15 @@ def test_running_sum_unweighted_and_zero_weight_fallback():
     assert fallback
 
 
+def test_running_sum_allows_accumulated_roundoff_for_large_universe():
+    statistics = np.linspace(1.0, 0.1, 79_800)
+    hits = np.zeros(79_800, dtype=bool)
+    hits[:36] = True
+    profile, fallback = compute_running_sum(statistics, hits)
+    assert profile[-1] == 0
+    assert not fallback
+
+
 @pytest.mark.parametrize(
     ("statistics", "hits", "weight"),
     [([1, 2], [True], 1), ([1, 2], [True, False], -1), ([1, np.nan], [True, False], 1)],

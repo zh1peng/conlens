@@ -124,6 +124,29 @@ def test_stability_and_consensus(example_edges, example_sets):
         summarize_stability(results, significance_alpha=1)
 
 
+def test_statistic_bootstrap_inner_inference_is_reproducible(example_edges, example_sets):
+    replicates = np.vstack(
+        [
+            example_edges["statistic"].to_numpy(),
+            example_edges["statistic"].to_numpy()[::-1],
+        ]
+    )
+    options = {
+        "statistic_replicates": replicates,
+        "min_size": 1,
+        "null_method": "edge_permutation",
+        "n_permutations": 20,
+        "random_state": 42,
+    }
+    first = bootstrap_lens(example_edges, example_sets, **options)
+    second = bootstrap_lens(example_edges, example_sets, **options)
+    for first_result, second_result in zip(first, second, strict=True):
+        assert first_result.metadata["random_seed"] == second_result.metadata["random_seed"]
+        assert first_result.to_frame()[["NES", "p_value", "q_value"]].equals(
+            second_result.to_frame()[["NES", "p_value", "q_value"]]
+        )
+
+
 def test_subject_level_bootstrap_is_explicit_and_reproducible(example_edges, example_sets):
     rng = np.random.default_rng(9)
     subject_data = rng.normal(size=(20, len(example_edges)))
@@ -161,6 +184,23 @@ def test_subject_level_bootstrap_is_explicit_and_reproducible(example_edges, exa
     assert [item.get("positive").ES for item in first] == [
         item.get("positive").ES for item in second
     ]
+    inferred_options = {
+        "subject_data": subject_data,
+        "statistic_function": statistic,
+        "strata": groups,
+        "n_bootstraps": 2,
+        "random_state": 3,
+        "min_size": 1,
+        "null_method": "edge_permutation",
+        "n_permutations": 10,
+    }
+    inferred_first = bootstrap_lens(example_edges, example_sets, **inferred_options)
+    inferred_second = bootstrap_lens(example_edges, example_sets, **inferred_options)
+    for first_result, second_result in zip(inferred_first, inferred_second, strict=True):
+        assert first_result.metadata["random_seed"] == second_result.metadata["random_seed"]
+        assert first_result.to_frame()[["NES", "p_value", "q_value"]].equals(
+            second_result.to_frame()[["NES", "p_value", "q_value"]]
+        )
     with pytest.raises(ValueError, match="statistic_function"):
         bootstrap_lens(example_edges, example_sets, subject_data=subject_data)
     with pytest.raises(ValueError, match="strata"):

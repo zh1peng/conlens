@@ -132,6 +132,77 @@ class LensResult:
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
+def _frame_payload(frame: pd.DataFrame) -> dict[str, Any]:
+    return {"columns": frame.columns.tolist(), "records": frame.to_dict(orient="records")}
+
+
+def _frame_from_payload(payload: dict[str, Any]) -> pd.DataFrame:
+    return pd.DataFrame(payload["records"], columns=payload["columns"])
+
+
+@dataclass(slots=True)
+class LensStabilityResult:
+    """Set- and edge-level summaries from a full-pipeline bootstrap."""
+
+    set_summary: pd.DataFrame
+    edge_summary: pd.DataFrame
+    replicate_summary: pd.DataFrame
+    metadata: dict[str, Any]
+    bootstrap_results: list[LensResult] | None = None
+
+    def get_set(self, set_name: str) -> pd.Series:
+        matches = self.set_summary[self.set_summary["set_name"] == set_name]
+        if len(matches) != 1:
+            raise KeyError(set_name)
+        return matches.iloc[0].copy()
+
+    def edges_for(self, set_name: str) -> pd.DataFrame:
+        if set_name not in set(self.set_summary.get("set_name", [])):
+            raise KeyError(set_name)
+        return self.edge_summary[self.edge_summary["set_name"] == set_name].reset_index(
+            drop=True
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return _jsonable(
+            {
+                "set_summary": _frame_payload(self.set_summary),
+                "edge_summary": _frame_payload(self.edge_summary),
+                "replicate_summary": _frame_payload(self.replicate_summary),
+                "metadata": self.metadata,
+                "bootstrap_results": None
+                if self.bootstrap_results is None
+                else [result.to_dict() for result in self.bootstrap_results],
+            }
+        )
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> LensStabilityResult:
+        data = _restore(payload)
+        stored_results = data.get("bootstrap_results")
+        return cls(
+            set_summary=_frame_from_payload(data["set_summary"]),
+            edge_summary=_frame_from_payload(data["edge_summary"]),
+            replicate_summary=_frame_from_payload(data["replicate_summary"]),
+            metadata=data["metadata"],
+            bootstrap_results=None
+            if stored_results is None
+            else [LensResult.from_dict(item) for item in stored_results],
+        )
+
+    def save(self, path: str | Path) -> Path:
+        destination = Path(path)
+        destination.write_text(
+            json.dumps(self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
+        return destination
+
+    @classmethod
+    def load(cls, path: str | Path) -> LensStabilityResult:
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
 @dataclass(slots=True)
 class LeadingNetwork:
     nodes: pd.DataFrame
