@@ -11,24 +11,35 @@
   --vp-button-brand-bg: #0b3b66;
   --vp-button-brand-hover-border: #155888;
   --vp-button-brand-hover-bg: #155888;
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #082f55 12%, #2f78a8 72%);
+  --vp-layout-max-width: 1520px;
   --vp-font-family-base: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+    "Segoe UI", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --vp-font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-body {
-  background: #fbfdff;
+.dark {
+  --vp-c-brand-1: #75b9e3;
+  --vp-c-brand-2: #4f9bc9;
+  --vp-c-brand-3: #337eae;
+  --vp-c-brand-soft: rgba(79, 155, 201, 0.18);
+  --vp-c-tip-1: #75b9e3;
+  --vp-c-tip-2: #4f9bc9;
+  --vp-c-tip-3: #337eae;
+  --vp-c-tip-soft: rgba(79, 155, 201, 0.16);
 }
 
 .VPNavBar {
-  background: rgba(251, 253, 255, 0.92) !important;
+  background: color-mix(in srgb, var(--vp-c-bg) 92%, transparent) !important;
   backdrop-filter: blur(12px);
 }
 
 .VPNavBarTitle .logo {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
+  padding: 3px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 9px;
+  background: #fff;
 }
 
 .VPNavBarTitle .title {
@@ -36,34 +47,61 @@ body {
   letter-spacing: 0.01em;
 }
 
-.VPHero .image-container {
-  transform: translateY(6px);
+.VPDoc .container {
+  max-width: 1480px !important;
 }
 
-.VPHero .image-src {
-  max-width: 420px;
-  max-height: 420px;
+.VPDoc:not(.has-sidebar) .content {
+  max-width: 960px;
 }
 
-.VPHero .tagline {
-  max-width: 640px;
-  line-height: 1.7;
+.VPDoc.has-aside .content-container {
+  max-width: 860px !important;
 }
 
-.VPFeature {
-  border-color: rgba(11, 59, 102, 0.12) !important;
-  background: rgba(255, 255, 255, 0.84) !important;
-  box-shadow: 0 16px 42px rgba(11, 59, 102, 0.06);
+.vp-doc {
+  color: var(--vp-c-text-1);
+  font-size: 16px;
+  line-height: 1.82;
 }
 
-.VPFeature:hover {
-  border-color: rgba(11, 59, 102, 0.3) !important;
-  transform: translateY(-2px);
-  transition: 160ms ease;
+.vp-doc .conlens-doc-logo {
+  display: block;
+  width: 220px;
+  max-height: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.dark .vp-doc .conlens-doc-logo {
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: #fff;
+}
+
+.vp-doc h1 {
+  max-width: 22ch;
+  font-size: clamp(2.15rem, 4vw, 3.35rem);
+  line-height: 1.12;
+  letter-spacing: -0.035em;
 }
 
 .vp-doc h2 {
-  border-top-color: rgba(11, 59, 102, 0.12);
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top-color: var(--vp-c-divider);
+}
+
+.vp-doc h3 {
+  margin-top: 2rem;
+}
+
+.vp-doc p,
+.vp-doc li {
+  text-wrap: pretty;
 }
 
 .vp-doc a {
@@ -76,20 +114,31 @@ body {
 }
 
 .vp-doc code {
-  color: #0b3b66;
+  color: var(--vp-c-brand-1);
 }
 
-@media (max-width: 640px) {
-  .VPHero .image {
-    margin-bottom: 0;
+.vp-doc div[class*="language-"] {
+  margin-top: 1.25rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: 0 12px 30px rgba(11, 59, 102, 0.06);
+}
+
+.dark .vp-doc div[class*="language-"] {
+  box-shadow: none;
+}
+
+.vp-doc .custom-block {
+  margin: 1.5rem 0;
+  border-radius: 12px;
+}
+
+@media (max-width: 560px) {
+  .vp-doc {
+    font-size: 15.5px;
   }
 
-  .VPHero .name {
-    display: none;
-  }
-
-  .VPHero .image-src {
-    max-width: 300px;
-    max-height: 300px;
+  .vp-doc .conlens-doc-logo {
+    width: 180px;
   }
 }
