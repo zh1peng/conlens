@@ -1,30 +1,14 @@
----
-layout: home
+<img class="conlens-doc-logo" src="/conlens-logo.png" alt="ConLens logo">
 
-hero:
-  name: ConLens
-  text: Ranked connectome enrichment and leading-edge networks
-  tagline: The complete English documentation is being prepared. The Chinese guide and the package source are available now.
-  image:
-    src: /conlens-logo.png
-    alt: ConLens logo
-  actions:
-    - theme: brand
-      text: 中文文档
-      link: /
-    - theme: alt
-      text: GitHub
-      link: https://github.com/zh1peng/conlens
+# Ranked connectome enrichment
 
-features:
-  - title: Full ranked edge universe
-    details: Analyze signed edge rankings without an arbitrary edge-wise threshold.
-  - title: Explicit inference
-    details: Keep the deterministic enrichment statistic separate from the selected null model.
-  - title: Traceable leading edges
-    details: Extract the connections driving enrichment without calling them individually significant.
----
+ConLens tests predefined edge sets against a complete signed connectome-wide ranking and
+reconstructs the leading-edge networks that drive enrichment extrema.
 
-## Documentation status
+The refactored API separates four stages: `lens_glm` (or external edge statistics),
+`lens_stat`, a streaming null generator (`lens_fl_permute` or `lens_edge_permute`), and
+`lens_enrich`. The final result retains set-level null enrichment scores without storing an
+edge × permutation matrix.
 
-The Chinese documentation is the primary edition during the first documentation cycle. The English edition will be expanded after the workflows, examples, and terminology are finalized.
+The full English guide is being prepared. The [Chinese documentation](/) contains the
+current tutorials, formulas, bootstrap workflow, and visualization examples.

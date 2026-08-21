@@ -1,48 +1,23 @@
----
-title: LENS 的输入是什么
-description: 先看 LENS 实际读取的数据，再选择有个体数据或只有边统计量的分析路线
----
+# LENS 吃进去的是什么
 
-# LENS 的输入是什么
+LENS 本身只需要三样东西：固定的 edge universe、每条边的有符号统计量，以及事先定义的
+edge sets。统计量越大，边越靠近排序顶部；越负，越靠近底部。`positive_direction` 必须写清楚，
+否则正负方向没有科学含义。
 
-LENS 分析的对象是一张完整的边排序。对一次 analysis，它需要：
+## 三层数据，不要混在一起
 
-- edge universe：本次分析包含哪些边；
-- signed edge statistic：每条边在同一方向定义下的一个数值；
-- edge sets：准备检验的连接集合。
+1. `EdgeStatistics`：一行一条边，保存 signed statistic、端点和模型来源。
+2. `LensStatResult`：对某个完整边排序计算 ES、running sum 和 leading edge；observed 与 null
+   使用完全相同的 `lens_stat`。
+3. `LensResult`：`lens_enrich` 加入 set-size filter、null normalization、经验 P 值和 BH q 值。
 
-假设 `positive_direction="g1 > control"`。正数表示连接在 g1 中更高，负数表示在
-control 中更高。LENS 将所有边从大到小排列，再检查某个 edge set 的成员是否集中在
-排序的正端或负端。
+这三层的分工是刻意的。`lens_glm` 不知道 edge sets；`lens_stat` 不知道某次输入是 observed
+还是 null；`lens_enrich` 不拟合模型，也不生成 permutation。
 
-它不会先挑出 edge-wise P 值小于 0.05 的边。每一条有效边都会进入 running sum。
+## 两种起点
 
-## 两条输入路线
+有个体 connectomes 时，用 `make_design`、`Contrast` 和 `lens_glm` 得到边统计量；对应的 null
+由 `lens_fl_permute` 生成。只有汇总边统计量时，用 `make_edge_statistics`，必要时采用
+`lens_edge_permute`。后一种 null 不保留受试者层面的协方差、空间和拓扑依赖，因此解释更受限。
 
-| 手头的数据 | 排序量从哪里来 | 合适的推断 |
-| --- | --- | --- |
-| 个体 connectomes | `analysis.glm()` 为每条边计算 partial $r$ 或 model-adjusted Hedges' $g$ | contrast-specific Freedman–Lane |
-| 已算好的 edge statistics | 直接使用 `statistic` 列 | 描述性 LENS、edge permutation，或外部 provided null |
-
-有个体数据时，优先走第一条路线。ConLens 会在每次 permutation 中重新拟合所有边、
-重新排序，再计算每个 edge set 的 ES。这样置换分布针对的是 LENS 结果本身。
-
-只有 edge statistics 时，ConLens 看不到受试者、design 和协方差结构。内置 edge
-permutation 仍可用，但它回答的是另一个零假设，不能替代 subject-level permutation。
-
-## LENS 从排序中算什么
-
-沿排序从左到右扫描：遇到 set 内的边，running sum 上升或按权重变化；遇到 set 外的
-边，running sum 下降。曲线离零最远的位置给出 enrichment score（ES）。正 ES 表示集合
-成员偏向排序正端，负 ES 表示偏向负端。
-
-Leading edge 是推动曲线到达该极值的 set members。它是网络级结果的定位，不是一张
-edge-wise significance list。
-
-## 接下来怎么读
-
-第一次使用可以先跑[五分钟快速开始](/guide/quick-start)，再读[从个体数据到 LENS](/tutorials/design-and-contrasts)。后者包含 design、contrasts、效应量和 subject-level
-permutation 的完整关系。
-
-如果没有个体数据，直接看[只有 edge statistics 时](/tutorials/edge-statistics)，并留意
-其中的零模型限制。
+下一步可直接进入[快速开始](/guide/quick-start)，或者先了解[数据与 edge sets](/guide/data-and-sets)。

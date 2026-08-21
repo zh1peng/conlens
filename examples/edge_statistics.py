@@ -1,49 +1,34 @@
-"""Reproducible edge-table, edge-set, inference, network, plot, and I/O tutorial."""
+"""LENS analysis when signed edge statistics already exist."""
 
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-import matplotlib.pyplot as plt
 import pandas as pd
 
-from conlens import (
-    LensResult,
-    build_leading_network,
-    lens_enrich,
-    make_network_pair_sets,
-    validate_edge_table,
-)
-from conlens.plotting import plot_enrichment
+from conlens import lens_edge_permute, lens_enrich, lens_stat, make_edge_statistics
 
-edges = pd.DataFrame(
-    {
-        "node1": ["A", "A", "A", "B", "B", "C"],
-        "node2": ["B", "C", "D", "C", "D", "D"],
-        "statistic": [3.0, 2.0, 1.0, -0.5, -1.5, -2.5],
-    }
-)
-edges = validate_edge_table(edges, node_order=["A", "B", "C", "D"])
-networks = {"A": "X", "B": "X", "C": "Y", "D": "Y"}
-edge_sets = make_network_pair_sets(edges, networks)
+edges = pd.DataFrame({
+    "node1": [0, 0, 0, 1, 1, 2],
+    "node2": [1, 2, 3, 2, 3, 3],
+    "statistic": [0.61, 0.43, 0.12, -0.08, -0.37, -0.55],
+})
+edge_sets = {
+    "DMN--DMN": {"0--1", "0--2", "0--3"},
+    "DMN--VIS": {"1--2", "1--3", "2--3"},
+}
 
-result = lens_enrich(
+true_edges = make_edge_statistics(
     edges,
-    edge_sets,
-    min_size=1,
-    null_method="edge_permutation",
-    n_permutations=50,
-    random_state=7,
-    positive_direction="case > control",
+    positive_direction="connectivity increases with age",
+    statistic_name="partial correlation",
 )
-network = build_leading_network(result, "X--Y")
-axes = plot_enrichment(result, "X--Y", edge_sets["X--Y"])
-assert len(axes) == 3
-assert network.directed is False
+observed = lens_stat(true_edges, edge_sets, store_running_sum=True)
+null_edges = lens_edge_permute(true_edges, n_permutations=199, random_state=42)
+null_stats = (lens_stat(item, edge_sets) for item in null_edges)
+result = lens_enrich(
+    observed,
+    null_stats,
+    min_size=1,
+    family_name="age-network-pairs",
+)
 
-with TemporaryDirectory() as directory:
-    result_path = result.save(Path(directory) / "result.json")
-    network.save(Path(directory) / "leading.graphml")
-    restored = LensResult.load(result_path)
-    assert restored.get("X--Y").ES == result.get("X--Y").ES
-
-plt.close("all")
+assert result.null_scores is not None
+assert result.null_scores.shape == (199, 2)
+print(result.to_frame()[["set_name", "ES", "NES", "p_value", "q_value"]])

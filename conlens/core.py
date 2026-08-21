@@ -1,20 +1,17 @@
-"""Deterministic ranking, running-sum, ES, and high-level enrichment."""
+"""Deterministic edge ranking and LENS set statistics."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import platform
 from collections.abc import Iterable, Mapping
-from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from ._version import __version__
 from .data import validate_edge_table
-from .results import LensResult, LensSetResult
+from .results import EdgeStatistics, LensSetResult, LensStatResult
 from .sets import validate_edge_sets
 
 TOLERANCE = 1e-12
@@ -26,7 +23,7 @@ def _hash_payload(payload: Any) -> str:
 
 
 def rank_edges(edges: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Sort statistic descending, then canonical edge ID ascending, stably."""
+    """Sort statistics descending with deterministic canonical-ID tie breaking."""
     if not {"edge_id", "statistic"}.issubset(edges.columns):
         raise ValueError("edges must contain edge_id and statistic")
     if edges["edge_id"].isna().any() or edges["edge_id"].duplicated().any():
@@ -46,12 +43,11 @@ def rank_edges(edges: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
         ["statistic", tie_column], ascending=[False, True], kind="stable"
     ).reset_index(drop=True)
     tied = ranked["statistic"].duplicated(keep=False)
-    metadata = {
+    return ranked, {
         "n_tied_edges": int(tied.sum()),
         "tied_edge_fraction": float(tied.mean()),
         "tie_method": "statistic_desc_then_canonical_edge_id_asc_stable",
     }
-    return ranked, metadata
 
 
 def compute_running_sum(
@@ -107,8 +103,7 @@ def compute_enrichment_score(
     if score_type not in {"standard", "positive", "negative"}:
         raise ValueError("score_type must be 'standard', 'positive', or 'negative'")
     values = profile[1:]
-    positive = float(np.max(values))
-    negative = float(np.min(values))
+    positive, negative = float(np.max(values)), float(np.min(values))
     if score_type == "positive":
         score, direction = positive, "positive"
         rank = int(np.flatnonzero(np.isclose(values, positive, atol=tolerance, rtol=0))[0] + 1)
@@ -149,7 +144,81 @@ def extract_leading_edges(
     return identifiers[selected].astype(str).tolist()
 
 
-def _set_result(
+def _coerce_edge_statistics(
+    edge_statistics: EdgeStatistics | pd.DataFrame,
+    *,
+    positive_direction: str | None = None,
+    directed: bool = False,
+    diagonal: bool = False,
+    nan_policy: str = "raise",
+) -> EdgeStatistics:
+    if isinstance(edge_statistics, EdgeStatistics):
+        if positive_direction is not None:
+            stored = edge_statistics.metadata.get("positive_direction")
+            if stored is not None and stored != positive_direction:
+                raise ValueError("positive_direction conflicts with edge-statistic metadata")
+        frame = edge_statistics.table
+        metadata = edge_statistics.metadata.copy()
+        directed = bool(metadata.get("directed", directed))
+        diagonal = bool(metadata.get("diagonal", diagonal))
+    elif isinstance(edge_statistics, pd.DataFrame):
+        frame = edge_statistics
+        metadata = {}
+    else:
+        raise TypeError("edge_statistics must be EdgeStatistics or a pandas DataFrame")
+    validated = validate_edge_table(
+        frame,
+        node_order=frame.attrs.get("node_order", metadata.get("node_order")),
+        directed=directed,
+        diagonal=diagonal,
+        nan_policy=nan_policy,
+    )
+    direction = positive_direction or metadata.get("positive_direction")
+    if not isinstance(direction, str) or not direction.strip():
+        raise ValueError("positive_direction must be supplied for signed edge statistics")
+    metadata.update(
+        {
+            "positive_direction": direction,
+            "statistic_name": metadata.get("statistic_name", "signed edge statistic"),
+            "node_order": validated.attrs.get("node_order", []),
+            "directed": directed,
+            "diagonal": diagonal,
+        }
+    )
+    metadata.setdefault(
+        "analysis_signature",
+        {"kind": "external_edge_statistics", "name": metadata["statistic_name"]},
+    )
+    return EdgeStatistics(validated, metadata)
+
+
+def make_edge_statistics(
+    edges: pd.DataFrame,
+    *,
+    positive_direction: str,
+    statistic_name: str = "statistic",
+    directed: bool = False,
+    diagonal: bool = False,
+    nan_policy: str = "raise",
+) -> EdgeStatistics:
+    """Validate an externally computed signed edge-statistic table."""
+    result = _coerce_edge_statistics(
+        edges,
+        positive_direction=positive_direction,
+        directed=directed,
+        diagonal=diagonal,
+        nan_policy=nan_policy,
+    )
+    result.metadata.update(
+        {
+            "statistic_name": statistic_name,
+            "analysis_signature": {"kind": "external_edge_statistics", "name": statistic_name},
+        }
+    )
+    return result
+
+
+def _score_set(
     name: str,
     input_size: int,
     members: set[str],
@@ -187,94 +256,46 @@ def _set_result(
     )
 
 
-def lens_enrich(
-    edges: pd.DataFrame,
+def _lens_stat_one(
+    edge_statistics: EdgeStatistics | pd.DataFrame,
     edge_sets: Mapping[str, Iterable[str]],
     *,
-    directed: bool = False,
-    diagonal: bool = False,
-    nan_policy: str = "raise",
-    weight: float = 1.0,
-    score_type: str = "standard",
-    min_size: int = 5,
-    max_size: int | None = None,
-    null_method: str | None = None,
-    n_permutations: int = 1000,
-    random_state: int | None = None,
-    provided_null: Mapping[str, Iterable[float]] | np.ndarray | None = None,
-    provided_null_kind: str = "es",
-    provided_null_edge_ids: Iterable[str] | None = None,
-    provided_null_edge_sets: Mapping[str, Iterable[str]] | None = None,
-    provided_null_direction: str | None = None,
-    store_running_sum: bool = False,
-    statistic_name: str = "statistic",
-    positive_direction: str | None = None,
-    correction_family_id: str = "default",
-) -> LensResult:
-    """Run descriptive LENS and optional explicitly selected edge/provided-null inference."""
-    if min_size < 1:
-        raise ValueError("min_size must be >= 1")
-    if max_size is not None and (max_size < 1 or max_size < min_size):
-        raise ValueError("max_size must be >= min_size")
+    positive_direction: str | None,
+    weight: float,
+    score_type: str,
+    store_running_sum: bool,
+) -> LensStatResult:
     if not np.isfinite(weight) or weight < 0:
         raise ValueError("weight must be a finite number >= 0")
     if score_type not in {"standard", "positive", "negative"}:
         raise ValueError("score_type must be 'standard', 'positive', or 'negative'")
-    if null_method not in {None, "edge_permutation", "provided_null"}:
-        raise ValueError(
-            "lens_enrich accepts null_method None, 'edge_permutation', or 'provided_null'; "
-            "use SubjectLensAnalysis.glm for subject-level inference"
-        )
-    if null_method == "edge_permutation" and n_permutations < 1:
-        raise ValueError("n_permutations must be >= 1")
-    validated = validate_edge_table(
-        edges,
-        node_order=edges.attrs.get("node_order"),
-        directed=directed,
-        diagonal=diagonal,
-        nan_policy=nan_policy,
-    )
-    ranked, ranking_meta = rank_edges(validated)
+    prepared = _coerce_edge_statistics(edge_statistics, positive_direction=positive_direction)
+    ranked, ranking_metadata = rank_edges(prepared.table)
     universe = set(ranked["edge_id"])
     input_sets = {
         str(name): [str(member) for member in members] for name, members in edge_sets.items()
     }
     sets = validate_edge_sets(input_sets, universe)
-    maximum = len(ranked) - 1 if max_size is None else max_size
-    results: list[LensSetResult] = []
+    output: list[LensSetResult] = []
     for name, members in sets.items():
-        size = len(members)
-        if size in {0, len(ranked)}:
-            status, reason = "invalid", "empty set" if size == 0 else "full-universe set"
-            results.append(
+        if len(members) in {0, len(ranked)}:
+            reason = "empty set" if not members else "full-universe set"
+            output.append(
                 LensSetResult(
-                    name,
-                    len(input_sets[name]),
-                    size,
-                    None,
-                    None,
-                    None,
-                    status=status,
+                    set_name=name,
+                    set_size_input=len(input_sets[name]),
+                    set_size_effective=len(members),
+                    ES=None,
+                    ES_positive=None,
+                    ES_negative=None,
+                    status="invalid",
                     warnings=[reason],
-                )
-            )
-        elif size < min_size or size > maximum:
-            reason = f"effective set size {size} is outside [{min_size}, {maximum}]"
-            results.append(
-                LensSetResult(
-                    name,
-                    len(input_sets[name]),
-                    size,
-                    None,
-                    None,
-                    None,
-                    status="filtered",
-                    warnings=[reason],
+                    edge_set_ids=sorted(members),
                 )
             )
         else:
-            results.append(
-                _set_result(
+            output.append(
+                _score_set(
                     name,
                     len(input_sets[name]),
                     members,
@@ -284,106 +305,52 @@ def lens_enrich(
                     store_running_sum=store_running_sum,
                 )
             )
-    node_order = validated.attrs.get("node_order", [])
-    payload = validated[["node1", "node2", "statistic", "edge_id", "canonical_edge_id"]].to_dict(
-        "records"
-    )
+    canonical_column = "canonical_edge_id" if "canonical_edge_id" in ranked else "edge_id"
+    edge_mapping = ranked[["edge_id", canonical_column]].sort_values("edge_id").to_dict("records")
     metadata = {
-        "package_version": __version__,
-        "python_version": platform.python_version(),
-        "input_hash": _hash_payload(payload),
-        "node_order": node_order,
+        **prepared.metadata,
         "edge_universe_hash": _hash_payload(sorted(universe)),
+        "edge_mapping_hash": _hash_payload(edge_mapping),
         "edge_universe_size": len(universe),
-        "directed": directed,
-        "diagonal": diagonal,
-        "ranking_statistic_name": statistic_name,
-        "analysis_signature": {
-            "kind": "edge_statistics",
-            "ranking_statistic_name": statistic_name,
-        },
-        "positive_direction": positive_direction,
+        "set_definition_hash": _hash_payload(
+            {name: sorted(members) for name, members in sorted(sets.items())}
+        ),
         "weight_exponent": weight,
         "score_type": score_type,
-        "set_size_filters": {"min_size": min_size, "max_size": maximum},
-        "null_method": null_method,
-        "permutation_scheme": null_method,
-        "exchangeability_blocks_summary": None,
-        "n_permutations": n_permutations if null_method else 0,
-        "random_seed": random_state,
-        "multiple_testing_method": "BH" if null_method else None,
-        "correction_family_id": correction_family_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "omitted_edges": validated.attrs.get("omitted_edges", []),
-        "inference_status": "not_requested" if null_method is None else "requested",
-        **ranking_meta,
+        **ranking_metadata,
     }
-    output = LensResult(results, metadata, ranked)
-    if null_method is None:
-        return output
-    from .inference import (
-        apply_null_inference,
-        edge_permutation_null,
-    )
-    from .inference import (
-        provided_null as validate_provided_null,
-    )
+    return LensStatResult(output, metadata, ranked)
 
-    valid_sets = {
-        result.set_name: sets[result.set_name] for result in results if result.status == "ok"
-    }
-    if null_method == "edge_permutation":
-        null_scores = edge_permutation_null(
-            ranked,
-            valid_sets,
-            n_permutations=n_permutations,
-            random_state=random_state,
-            weight=weight,
-            score_type=score_type,
-        )
-        metadata["null_scope"] = "competitive_edge_label"
-    elif null_method == "provided_null":
-        if provided_null is None:
-            raise ValueError("provided_null is required when null_method='provided_null'")
-        if (
-            provided_null_edge_ids is None
-            or provided_null_edge_sets is None
-            or provided_null_direction is None
-            or positive_direction is None
-        ):
-            raise ValueError(
-                "provided null inference requires edge IDs, edge sets, and both observed "
-                "and null statistic directions"
+
+def lens_stat(
+    edge_statistics: EdgeStatistics | pd.DataFrame | Mapping[str, EdgeStatistics],
+    edge_sets: Mapping[str, Iterable[str]],
+    *,
+    positive_direction: str | None = None,
+    weight: float = 1.0,
+    score_type: str = "standard",
+    store_running_sum: bool = False,
+) -> LensStatResult | dict[str, LensStatResult]:
+    """Calculate the same deterministic LENS statistics for observed or null edges."""
+    if isinstance(edge_statistics, Mapping) and not isinstance(edge_statistics, pd.DataFrame):
+        if not edge_statistics:
+            raise ValueError("edge_statistics mapping cannot be empty")
+        return {
+            str(name): _lens_stat_one(
+                item,
+                edge_sets,
+                positive_direction=None,
+                weight=weight,
+                score_type=score_type,
+                store_running_sum=store_running_sum,
             )
-        null_edge_ids = [str(edge_id) for edge_id in provided_null_edge_ids]
-        if len(null_edge_ids) != len(set(null_edge_ids)) or set(null_edge_ids) != universe:
-            raise ValueError("provided null edge universe does not match observed edges")
-        null_set_definitions = {
-            str(name): {str(member) for member in members}
-            for name, members in provided_null_edge_sets.items()
+            for name, item in edge_statistics.items()
         }
-        if null_set_definitions != valid_sets:
-            raise ValueError("provided null set definitions do not match valid observed sets")
-        if provided_null_direction != positive_direction:
-            raise ValueError("provided null statistic direction does not match observed direction")
-        canonical_by_id = dict(zip(ranked["edge_id"], ranked["canonical_edge_id"], strict=True))
-        null_scores = validate_provided_null(
-            provided_null,
-            kind=provided_null_kind,
-            edge_ids=null_edge_ids,
-            canonical_edge_ids=[canonical_by_id[edge_id] for edge_id in null_edge_ids],
-            edge_sets=valid_sets,
-            weight=weight,
-            score_type=score_type,
-        )
-        if set(null_scores) != set(valid_sets):
-            raise ValueError("provided null set definitions do not match valid observed sets")
-        lengths = {len(value) for value in null_scores.values()}
-        metadata["n_permutations"] = lengths.pop() if lengths else 0
-        metadata["provided_null_kind"] = provided_null_kind
-        metadata["provided_null_edge_order"] = null_edge_ids
-        metadata["provided_null_direction"] = provided_null_direction
-        metadata["provided_null_validation"] = "edge_order_sets_and_direction_match"
-    apply_null_inference(output, null_scores, correction_family_id=correction_family_id)
-    metadata["inference_status"] = "complete"
-    return output
+    return _lens_stat_one(
+        edge_statistics,
+        edge_sets,
+        positive_direction=positive_direction,
+        weight=weight,
+        score_type=score_type,
+        store_running_sum=store_running_sum,
+    )

@@ -1,38 +1,37 @@
-"""Reproducible Nilearn-adapter and statistic-replicate stability tutorial."""
+"""Small full-pipeline bootstrap example."""
 
 import numpy as np
-import pandas as pd
 
-from conlens import bootstrap_lens, consensus_network, summarize_stability
-from conlens.interfaces.nilearn import from_nilearn_connectivity
+from conlens import Contrast, lens_bootstrap, make_design
 
-rng = np.random.default_rng(21)
-connectomes = rng.normal(size=(8, 3, 3))
-connectomes = (connectomes + connectomes.transpose(0, 2, 1)) / 2
+rng = np.random.default_rng(11)
+n_subjects, n_nodes = 30, 5
+group = np.repeat([0, 1], n_subjects // 2)
+raw = rng.normal(size=(n_subjects, n_nodes, n_nodes))
+connectomes = (raw + raw.transpose(0, 2, 1)) / 2
 for matrix in connectomes:
     np.fill_diagonal(matrix, 0)
+design = make_design(groups={"control": group == 0, "case": group == 1})
+contrasts = {
+    "case_vs_control": Contrast(
+        {"case": 1, "control": -1}, "hedges_g", "case > control"
+    )
+}
+edge_sets = {
+    "A--A": {"0--1", "0--2", "1--2"},
+    "A--B": {"0--3", "0--4", "1--3", "1--4"},
+}
 
-labels = ["A", "B", "C"]
-metadata = pd.DataFrame({"node_id": labels, "network": ["X", "X", "Y"]})
-subject_edges = from_nilearn_connectivity(
+stability = lens_bootstrap(
     connectomes,
-    labels,
-    coordinates=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
-    node_metadata=metadata,
-)
-template = subject_edges[subject_edges["subject"] == 0].copy()
-template["statistic"] = [2.0, 0.5, -1.0]
-edge_sets = {"example": {"0--1", "0--2"}}
-replicates = np.vstack(
-    [template["statistic"].to_numpy() + rng.normal(0, 0.1, len(template)) for _ in range(5)]
-)
-results = bootstrap_lens(
-    template,
     edge_sets,
-    statistic_replicates=replicates,
-    min_size=1,
+    design=design,
+    contrasts=contrasts,
+    n_bootstraps=3,
+    n_permutations=9,
+    strata=group,
+    random_state=42,
+    min_size=2,
+    min_same_direction=1,
 )
-summary = summarize_stability(results)
-consensus = consensus_network(results, "example", threshold=0.6)
-assert summary["n_replicates"] == 5
-assert "inclusion_frequency" in consensus
+print(stability["case_vs_control"].set_summary)

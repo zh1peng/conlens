@@ -175,15 +175,18 @@ def _validate_rank(frame: pd.DataFrame) -> float:
 
 
 def _mapping_frame(
+    groups: Mapping[str, Iterable[float | bool]],
     indicators: Mapping[str, Iterable[float | bool]],
     continuous: Mapping[str, Iterable[float]],
 ) -> pd.DataFrame:
+    group_names = _validate_names(groups, "group column")
     indicator_names = _validate_names(indicators, "indicator column")
     continuous_names = _validate_names(continuous, "continuous column")
-    if set(indicator_names) & set(continuous_names):
-        raise ValueError("indicator and continuous column names must not overlap")
+    all_names = [*group_names, *indicator_names, *continuous_names]
+    if len(all_names) != len(set(all_names)):
+        raise ValueError("group, indicator, and continuous column names must not overlap")
     try:
-        frame = pd.DataFrame({**indicators, **continuous}).reset_index(drop=True)
+        frame = pd.DataFrame({**groups, **indicators, **continuous}).reset_index(drop=True)
     except ValueError as exc:
         raise ValueError("all design columns must contain the same number of observations") from exc
     _validate_numeric_design(frame)
@@ -219,41 +222,44 @@ def _raw_frame(
 
 def make_design(
     *,
+    groups: Mapping[str, Iterable[float | bool]] | None = None,
     indicators: Mapping[str, Iterable[float | bool]] | None = None,
     continuous: Mapping[str, Iterable[float]] | None = None,
     interactions: Mapping[str, tuple[str, str]] | None = None,
     matrix: np.ndarray | pd.DataFrame | None = None,
     column_names: Sequence[str] | None = None,
     center_continuous: bool = True,
-    add_intercept: bool | None = None,
 ) -> DesignMatrix:
     """Build a validated design without hidden recoding or orthogonalization.
 
-    Semantic mode preserves the names supplied in ``indicators`` and
-    ``continuous``. Continuous columns are mean-centered by default; indicator
-    columns are never centered. Named interactions are constructed only after
-    centering. Semantic mode adds an intercept by default unless
-    ``add_intercept=False`` is supplied.
+    ``groups`` defines exhaustive cell-means columns: every row must belong to
+    exactly one named group, and no separate intercept is added. Without
+    ``groups``, semantic mode adds an intercept automatically. Continuous
+    columns are mean-centered by default; indicator columns are never centered.
+    Named interactions are constructed only after centering.
 
     Raw-matrix mode uses ``matrix`` exactly as supplied: it never centers columns,
     creates interactions, or adds an intercept.
     """
+    group_columns = {} if groups is None else dict(groups)
     indicator_columns = {} if indicators is None else dict(indicators)
     continuous_columns = {} if continuous is None else dict(continuous)
     interaction_specs = {} if interactions is None else dict(interactions)
-    semantic_requested = bool(indicator_columns or continuous_columns or interaction_specs)
+    semantic_requested = bool(
+        group_columns or indicator_columns or continuous_columns or interaction_specs
+    )
 
     if matrix is not None:
         if semantic_requested:
             raise ValueError(
-                "matrix mode cannot be combined with indicators, continuous, or interactions"
+                "matrix mode cannot be combined with groups, indicators, continuous, "
+                "or interactions"
             )
-        if add_intercept is True:
-            raise ValueError("raw matrix mode does not add an intercept")
         frame = _raw_frame(matrix, column_names)
         centering: dict[str, float] = {}
         provenance: dict[str, Any] = {
             "input_mode": "matrix",
+            "group_columns": [],
             "indicator_columns": [],
             "continuous_columns": [],
             "center_continuous": False,
@@ -263,15 +269,19 @@ def make_design(
     else:
         if column_names is not None:
             raise ValueError("column_names are only used with matrix")
-        if not indicator_columns and not continuous_columns:
-            raise ValueError("provide indicators/continuous or a raw matrix")
+        if not group_columns and not indicator_columns and not continuous_columns:
+            raise ValueError("provide groups/indicators/continuous or a raw matrix")
         if not isinstance(center_continuous, bool):
             raise TypeError("center_continuous must be boolean")
-        frame = _mapping_frame(indicator_columns, continuous_columns)
-        for name in indicator_columns:
+        frame = _mapping_frame(group_columns, indicator_columns, continuous_columns)
+        for name in [*group_columns, *indicator_columns]:
             values = frame[name].to_numpy(float)
             if not np.isin(values, [0.0, 1.0]).all():
-                raise ValueError(f"indicator column {name!r} must contain only 0/1 values")
+                raise ValueError(f"binary column {name!r} must contain only 0/1 values")
+        if group_columns:
+            membership = frame[list(group_columns)].sum(axis=1).to_numpy(float)
+            if not np.allclose(membership, 1.0):
+                raise ValueError("every row must belong to exactly one group")
 
         centering = {}
         if center_continuous:
@@ -298,15 +308,14 @@ def make_design(
             frame[name] = frame[first] * frame[second]
             normalized_interactions[name] = [first, second]
 
-        use_intercept = True if add_intercept is None else add_intercept
-        if not isinstance(use_intercept, bool):
-            raise TypeError("add_intercept must be boolean or None")
+        use_intercept = not group_columns
         if use_intercept:
             if "intercept" in frame.columns:
                 raise ValueError("design already contains an 'intercept' column")
             frame.insert(0, "intercept", 1.0)
         provenance = {
             "input_mode": "semantic",
+            "group_columns": list(group_columns),
             "indicator_columns": list(indicator_columns),
             "continuous_columns": list(continuous_columns),
             "center_continuous": center_continuous,

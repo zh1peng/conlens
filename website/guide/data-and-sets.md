@@ -1,84 +1,30 @@
----
-title: 数据与 edge sets
-description: ConLens 的边表、connectome 与集合定义
----
-
 # 数据与 edge sets
 
-## 边统计量表
+## Connectomes
 
-最小输入包含三列：
-
-| 列 | 含义 |
-| --- | --- |
-| `node1` | 第一端点 |
-| `node2` | 第二端点 |
-| `statistic` | 有符号边统计量 |
-
-`validate_edge_table` 会检查重复边、缺失值、非有限统计量、对角线和有向性，并生成稳定的 `edge_id` 与 `canonical_edge_id`。
+`lens_glm` 接受 `(subjects, nodes, nodes)` 数组。无向矩阵必须对称；默认排除对角线。
+`node_labels` 决定稳定的节点顺序和 canonical edge IDs，例如 `0--1`。外部表也至少需要
+`node1`、`node2`、`statistic` 三列。
 
 ```python
-from conlens import validate_edge_table
+from conlens import matrix_to_edges
 
-validated = validate_edge_table(
-    edges,
-    directed=False,
-    diagonal=False,
-    nan_policy="raise",
-)
+edges = matrix_to_edges(connectomes.mean(axis=0), node_labels)
 ```
 
-## Connectome 数组
+若自定义 `edge_id`，ConLens 会保留它，同时记录 `edge_id → canonical_edge_id` 映射；这能防止
+bootstrap 或 null 结果把同名边错误地映射到不同端点。
 
-`LensAnalysis.from_subject_connectomes` 接受形状为：
-
-```text
-(subjects, nodes, nodes)
-```
-
-的 NumPy 数组。无向连接组默认要求矩阵对称；`node_labels` 的顺序会成为 edge universe 身份的一部分。
-
-## 网络对集合
+## Network-pair sets
 
 ```python
-from conlens import make_network_pair_sets, matrix_to_edges
+from conlens import make_network_pair_sets
 
-template = matrix_to_edges(connectomes[0], node_labels=labels)
-node_networks = {
-    "A": "DMN",
-    "B": "DMN",
-    "C": "VIS",
-    "D": "VIS",
-}
-edge_sets = make_network_pair_sets(template, node_networks)
+edge_sets = make_network_pair_sets(edges, node_networks)
 ```
 
-对于无向数据，集合名称使用排序后的 `NETWORK_A--NETWORK_B`。来自单标签 parcellation 的网络对集合会划分整个无向 edge universe。
+无向集合名形如 `DMN--FPN`，有向集合名形如 `DMN->FPN`。也可用
+`make_custom_edge_sets`、`make_within_network_sets` 或 `make_hemisphere_sets`。
 
-## 自定义集合
-
-```python
-from conlens import make_custom_edge_sets
-
-custom = make_custom_edge_sets(
-    {"hypothesis": endpoint_frame},
-    validated,
-)
-```
-
-未知边或重复边会直接报错，而不会被静默修复。自定义集合可以重叠，但重叠会影响集合间依赖，因此解释多重检验 family 时必须保持明确。
-
-## 集合大小过滤
-
-`lens_enrich` 默认 `min_size=5`。太小、覆盖完整 universe 或超过 `max_size` 的集合不会获得有效 running sum。过滤状态会保留在结果中，不会静默丢失。
-
-## 冻结 edge universe
-
-以下内容在同一次分析及 bootstrap 重拟合中必须保持一致：
-
-- 节点顺序；
-- `directed` 与 `diagonal` 设置；
-- edge ID 到 canonical edge ID 的映射；
-- 集合名称及成员；
-- ranking statistic、weight、score type 和过滤规则。
-
+Set size filter 不在 `lens_stat` 中执行。Observed 和每个 null 先按完全相同的集合定义计算 ES，
+再由 `lens_enrich(min_size=..., max_size=...)` 决定哪些集合进入推断和 BH family。

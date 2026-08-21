@@ -1,75 +1,59 @@
----
-title: Permutation 与零模型
-description: Subject-level Freedman–Lane、edge permutation、provided null 和 BH 校正
----
-
-# Permutation 与零模型
-
-ES 是 observed 排序的描述。P 值、NES 和 q 值还需要一个零模型。选择哪种零模型，取决于
-ConLens 能看到哪一层数据。
+# Permutation 与推断
 
 ## 有个体数据：Freedman–Lane
 
+对每个 contrast $\mathbf c$，`lens_fl_permute` 先拟合与 $H_0:\mathbf c^\top\boldsymbol\beta=0$
+对应的 reduced model，置换其残差，再与 reduced fitted values 相加并重拟合 full model：
+
+$$
+\mathbf Y^{*(b)} = \widehat{\mathbf Y}_0 + \mathbf P_b\widehat{\mathbf E}_0.
+$$
+
+每个 permutation 都重新计算 edge-wise effect、完整边排序和 LENS ES。多个 contrasts 共用同一
+行置换，但各自有符合该 contrast 的 reduced model。
+
 ```python
-fit = analysis.glm(
-    design,
-    contrasts,
+null_edges = lens_fl_permute(
+    connectomes,
+    design=design,
+    contrasts=contrasts,
+    n_permutations=10_000,
     exchangeability_blocks=site,
-    n_permutations=10_000,
-    random_state=1,
+    random_state=42,
 )
+null_stats = (lens_stat(item, edge_sets) for item in null_edges)
 ```
 
-对每个一自由度 contrast $\mathbf c$，ConLens 检验
+`exchangeability_blocks` 约束内层 permutation；它不是 bootstrap 的 `strata`，也不能替代
+cluster bootstrap。
 
-$$
-H_0:\mathbf c^\mathsf{T}\boldsymbol\beta_e=0.
-$$
+## On the fly，而不是保存 edge × permutation
 
-Reduced model 由当前 contrast 的约束决定。ConLens 置换 reduced-model residual rows，
-然后用完整 design 重新拟合每条边。同一个 row permutation 同时作用于所有边，因此不会
-拆散同一受试者内的 edge covariance。
-
-每个 replicate 都会产生一张新的完整边排序，随后重算所有 edge sets 的 ES。最终 P 值
-比较的是 observed ES 与 permuted ES，不是把 edge-wise P 值送进 LENS。
-
-`exchangeability_blocks` 限制 row permutation 的范围。需要调整的 site、motion 或其他
-covariates 仍要写进 design；两者用途不同。
-
-## 只有边统计量：edge permutation
+`lens_fl_permute` 和 `lens_edge_permute` 都返回迭代器。推荐直接把它们接到 `lens_stat`，然后交给
+`lens_enrich`：
 
 ```python
-result = lens_enrich(
-    edges,
-    edge_sets,
-    null_method="edge_permutation",
-    n_permutations=10_000,
-    random_state=1,
-    positive_direction="case > control",
-)
+fit = lens_enrich(observed, null_stats, family_name="primary-model")
 ```
 
-这个方法打乱 statistic 与 edge ID 的对应关系。它保留 edge-set 大小和重叠，却不保留
-共享节点、拓扑、空间关系或 edge covariance。它检验 competitive edge-label null，
-不是 subject-level model null。
+每次 null 的边统计量在算完 ES 后即可释放。最终 `LensResult.null_scores` 只保留每个
+permutation × tested set 的 ES。这正是计算 NES、经验 P 值和画 null 分布所需的信息。
 
-## 外部生成的 null
+## P、NES 与联合 BH
 
-`null_method="provided_null"` 可接收 null ES、edge-statistic matrices 或 rank matrices。
-Observed 与 null 的 edge 顺序、sets 和方向定义必须一致。Rank matrices 没有原始统计量
-幅度，只能用于 `weight=0` 的 unweighted enrichment。
+Observed ES 为正时只使用非负 null tail；为负时只使用非正 tail。经验 P 值采用 plus-one：
 
-这种方式是否保留研究设计和依赖结构，取决于外部 null 的生成过程。ConLens 只能验证
-传入对象的身份信息，不能从结果矩阵反推出置换是否设计正确。
+$$
+p = \frac{1 + \#\{ES_0\text{ 至少与 }ES_{obs}\text{ 一样极端}\}}
+{1 + \#\{ES_0\text{ 与 }ES_{obs}\text{ 同方向}\}}.
+$$
 
-## P 值、NES 和 BH
+NES 用同方向 null ES 的平均绝对值归一化。随后，`lens_enrich` 对同一次调用中的全部
+`contrast × tested set` P 值做一次 Benjamini–Hochberg 校正。`family_name` 只是可读的审计标签，
+不会把分开运行的结果魔法般合并为一个 family。
 
-P 值使用 add-one empirical estimate，并按 observed ES 的符号选择同侧 null。NES 用
-同符号 null ES 的平均绝对值做归一化。NES 是网络集合统计量，不是 edge effect size。
+## 只有 edge statistics 时
 
-一次 `analysis.glm()` 调用构成一个 correction family。若有 $C$ 个 contrasts 和 $S$ 个
-有效 edge sets，BH 覆盖最多 $C\times S$ 个 nominal P 值。不同 cohort 或互不相关的
-confirmatory families 不应为了省一次调用而合并。
-
-调试时可以减少 permutations。正式分析应根据所需的 P 值分辨率选择次数，并固定
-`random_state`。ConLens 会记录 permutation 数量、scheme 和 correction family。
+`lens_edge_permute` 随机打乱 statistic 与 edge label 的对应关系。它是 competitive null，
+不会保留共享节点、空间邻近、拓扑结构或跨边协方差。没有个体数据时可以用它做受限推断，
+但不能把它描述成 subject-level reproduction test。完整写法见[汇总边统计量教程](/tutorials/edge-statistics)。

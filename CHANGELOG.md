@@ -1,20 +1,20 @@
 # Changelog
 
-## Unreleased
+## 2.0.0 - 2026-08-21
 
-- Replaced separate subject-level group/phenotype entry points with one validated
-  design-matrix and named-contrast GLM workflow.
-- Added explicit indicator/continuous/interaction design construction, design and
-  contrast visualization, signed partial r, model-adjusted Hedges' g, and joint
-  contrast-by-set BH adjustment.
-- Added observed-anchored, full-pipeline subject-bootstrap stability summaries.
-- Added conditional and full-pipeline edge stability, Monte Carlo bounds, gated
-  reproducible cores, and serializable `LensStabilityResult` tables.
-- Added deterministic stratified-subject refitting through
-  `SubjectLensAnalysis.bootstrap_stability`.
+- Rebuilt the public workflow around `lens_glm`, `lens_stat`, streaming null
+  generators, and `lens_enrich`.
+- Added named multi-contrast GLM designs, partial correlation, and model-adjusted
+  Hedges' g based on the full-model residual standard deviation.
+- Added contrast-specific Freedman–Lane and edge-label permutation iterators.
+- Retained compact permutation × edge-set null ES tables for audit and plotting,
+  without storing edge × permutation arrays.
+- Rebuilt subject bootstrap as a complete GLM → FL → LENS → joint-BH refit.
+- Added annotated connectome heatmaps, network-enrichment heatmaps, running-sum
+  diagnostics, null distributions, and leading-edge circos plots.
+- Replaced the former public analysis objects and inference entry points; 2.0 is
+  intentionally not API-compatible with 1.0.
 
 ## 1.0.0 - 2026-07-11
 
-- Initial stable API for deterministic LENS enrichment.
-- Explicit edge, contrast-specific Freedman–Lane, and provided-null inference.
-- Leading-network, stability, comparison, visualization, serialization, CLI, and Nilearn adapters.
+- Initial public development release.

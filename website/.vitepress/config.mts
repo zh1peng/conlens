@@ -26,13 +26,14 @@ export default defineConfig({
       lang: 'zh-CN',
       title: 'ConLens',
       titleTemplate: ':title · ConLens',
-      description: '连接组全排序富集、leading-edge 网络与全流程 bootstrap 稳定性分析',
+      description: '连接组全排序富集、流式 permutation、leading-edge 网络与稳定性分析',
       themeConfig: {
         logo: '/conlens-mark.svg',
         siteTitle: 'ConLens',
         nav: [
           { text: '开始', link: '/guide/introduction' },
           { text: '教程', link: '/tutorials/design-and-contrasts' },
+          { text: '绘图', link: '/tutorials/visualization' },
           { text: '结果解释', link: '/guide/interpretation' },
           { text: 'API', link: '/reference/api' },
         ],
@@ -58,9 +59,10 @@ export default defineConfig({
           {
             text: '分析教程',
             items: [
-              { text: '从个体数据到 LENS', link: '/tutorials/design-and-contrasts' },
+              { text: 'Design、contrast 与效应量', link: '/tutorials/design-and-contrasts' },
               { text: 'Bootstrap 稳定性', link: '/tutorials/stability' },
               { text: '只有 edge statistics 时', link: '/tutorials/edge-statistics' },
+              { text: '可视化', link: '/tutorials/visualization' },
             ],
           },
           {

@@ -6,116 +6,98 @@
 </p>
 
 <p align="center">
-  <a href="https://zh1peng.github.io/conlens/">中文文档</a>
-  ·
-  <a href="https://zh1peng.github.io/conlens/en/">English</a>
-  ·
+  <a href="https://zh1peng.github.io/conlens/">中文文档</a> ·
+  <a href="https://zh1peng.github.io/conlens/en/">English</a> ·
   <a href="https://github.com/zh1peng/conlens">GitHub</a>
 </p>
 
 # ConLens
 
-`conlens` is a transparent, reproducible, modality-agnostic implementation of LENS
-(Leading-edge Network Set enrichment) for ranked connectome-wide statistics.
+ConLens performs ranked enrichment of predefined connectome edge sets and reconstructs
+the leading-edge networks that drive each enrichment result. It uses the complete signed
+edge ranking; edge-wise significance filtering is not part of the method.
 
-It uses every valid edge in a signed ranked list. It does not threshold edge-wise
-statistics, silently choose a null model, or treat leading edges as individually
-significant edges.
+The public workflow has four explicit stages:
+
+```text
+lens_glm / external statistics
+             ↓
+          lens_stat
+             ↓
+lens_fl_permute / lens_edge_permute → lens_stat (streamed)
+             ↓
+         lens_enrich
+```
+
+`lens_enrich` never fits or permutes edge models. It consumes observed LENS statistics and
+a stream of null LENS statistics, then performs normalization, empirical inference, and a
+joint Benjamini–Hochberg correction. The result keeps one null enrichment score per
+permutation and edge set—not the much larger edge × permutation matrix.
 
 ## Install
 
 ```bash
 git clone https://github.com/zh1peng/conlens.git
 cd conlens
-pip install .
+python -m pip install .
 ```
 
-Nilearn integration is optional:
-
-```bash
-pip install ".[nilearn]"
-```
-
-## Minimal analysis
+## Subject-level example
 
 ```python
-import pandas as pd
-from conlens import lens_enrich
-
-edges = pd.DataFrame({
-    "node1": ["A", "A", "A", "B", "B", "C"],
-    "node2": ["B", "C", "D", "C", "D", "D"],
-    "statistic": [3.0, 2.0, 1.0, -0.5, -1.5, -2.5],
-})
-
-# Validate once to discover canonical edge IDs, or construct sets from metadata.
-from conlens import validate_edge_table
-validated = validate_edge_table(edges)
-edge_sets = {"example": set(validated.loc[[0, 1, 4], "edge_id"])}
-
-result = lens_enrich(
-    edges,
-    edge_sets,
-    min_size=1,
-    positive_direction="case > control",
-    store_running_sum=True,
+from conlens import (
+    Contrast, lens_enrich, lens_fl_permute, lens_glm,
+    lens_stat, make_design,
 )
-print(result.to_frame())
-```
 
-Without `null_method`, the result is descriptive: `NES`, `p_value`, and `q_value`
-remain `None`. Inference is always explicit:
+design = make_design(
+    groups={
+        "control": diagnosis == "control",
+        "g1": diagnosis == "g1",
+        "g2": diagnosis == "g2",
+    },
+    continuous={"age": age},
+    indicators={"sex": sex},
+)
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1}, "hedges_g", "g1 > control"
+    ),
+    "age": Contrast(
+        {"age": 1}, "partial_r", "connectivity increases with age"
+    ),
+}
 
-```python
-inferred = lens_enrich(
-    edges,
-    edge_sets,
-    min_size=1,
-    null_method="edge_permutation",
+true_edges = lens_glm(connectomes, design=design, contrasts=contrasts)
+observed = lens_stat(true_edges, edge_sets, store_running_sum=True)
+null_edges = lens_fl_permute(
+    connectomes,
+    design=design,
+    contrasts=contrasts,
     n_permutations=10_000,
     random_state=42,
-    positive_direction="case > control",
+)
+null_stats = (lens_stat(item, edge_sets) for item in null_edges)
+result = lens_enrich(
+    observed,
+    null_stats,
+    family_name="primary-model",
 )
 ```
 
-The edge-label null is competitive and does **not** preserve shared-node,
-topological, spatial, or edge-covariance dependence. Subject-level analyses use
-the unified design-matrix/contrast GLM with contrast-specific Freedman–Lane inference.
-
-## Full-pipeline bootstrap stability
-
-For subject-level analyses, `SubjectLensAnalysis.bootstrap_stability` resamples
-subjects and calls a user-supplied `refit` function for every replicate. That
-function must repeat the edge model, null inference, LENS tests, and BH adjustment;
-the returned `LensStabilityResult` separates set detection/direction stability from
-conditional and full-pipeline leading-edge stability. The older
-`bootstrap_lens`/`summarize_stability` workflow remains available for descriptive,
-ungated localization sensitivity.
-
-Bootstrap frequencies and their Monte Carlo intervals are sampling-sensitivity
-summaries, not edge-truth probabilities, FDP guarantees, or exact future-study
-replication probabilities. See the [stability tutorial](docs/tutorials.md#8-bootstrap-stability)
-for the complete refit callback and supported resampling schemes.
-
-See [Concepts](docs/concepts.md), [How LENS works](docs/algorithm.md),
-[Tutorials](docs/tutorials.md), and the [Interpretation guide](docs/interpretation.md).
-The Chinese-first VitePress documentation is available at
-[zh1peng.github.io/conlens](https://zh1peng.github.io/conlens/).
-
-## CLI
-
-```bash
-conlens edges.csv sets.json result.json \
-  --null-method edge_permutation --n-permutations 10000 --random-state 42
-```
+For a continuous contrast, the ranked edge statistic is partial correlation. For a group
+contrast, it is model-adjusted Hedges' g using the full model residual standard deviation.
+See the [Chinese tutorial](https://zh1peng.github.io/conlens/tutorials/design-and-contrasts)
+for formulas, multi-group examples, permutation details, bootstrap stability, and figures.
 
 ## Development
 
 ```bash
 python -m pip install -e ".[dev]"
-pytest --cov=conlens
+pytest --cov=conlens --cov-fail-under=90
 ruff check .
+python -m mypy conlens
 python -m build
 ```
 
-The package supports Python 3.10+ on Linux, macOS, and Windows and is MIT licensed.
+Python 3.10+ · Linux, macOS, and Windows · MIT license
