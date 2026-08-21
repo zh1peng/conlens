@@ -24,8 +24,8 @@ description: 正确报告 ConLens 富集、leading edge 与稳定性结果
 ## 零模型必须与问题匹配
 
 - edge permutation 不保留 connectome 的共享节点、空间、拓扑和边协方差结构；
-- label permutation 依赖受试者标签的可交换性；
-- Freedman–Lane 依赖 reduced-model residual 的合法置换；
+- contrast-specific Freedman–Lane 依赖 full design、contrast-specific reduced model
+  和 residual rows 的合法置换；
 - exchangeability blocks 必须代表真实的受限交换结构。
 
 ## Bootstrap stability
@@ -47,4 +47,3 @@ description: 正确报告 ConLens 富集、leading edge 与稳定性结果
 6. BH correction family；
 7. ES、NES、P、q、方向和 leading-edge 大小；
 8. 若报告稳定性，说明 outer resampling、inner inference、阈值和分母。
-

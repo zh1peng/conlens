@@ -8,6 +8,9 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   appearance: true,
+  markdown: {
+    math: true,
+  },
   sitemap: {
     hostname: siteUrl,
   },
@@ -29,7 +32,7 @@ export default defineConfig({
         siteTitle: 'ConLens',
         nav: [
           { text: '开始', link: '/guide/introduction' },
-          { text: '教程', link: '/tutorials/edge-statistics' },
+          { text: '教程', link: '/tutorials/design-and-contrasts' },
           { text: '结果解释', link: '/guide/interpretation' },
           { text: 'API', link: '/reference/api' },
         ],
@@ -56,8 +59,7 @@ export default defineConfig({
             text: '分析教程',
             items: [
               { text: '边统计量输入', link: '/tutorials/edge-statistics' },
-              { text: '受试者两组分析', link: '/tutorials/subject-two-group' },
-              { text: '含协变量的 GLM', link: '/tutorials/glm' },
+              { text: 'Design matrix 与 contrasts', link: '/tutorials/design-and-contrasts' },
               { text: 'Bootstrap 稳定性', link: '/tutorials/stability' },
             ],
           },

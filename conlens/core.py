@@ -223,7 +223,7 @@ def lens_enrich(
     if null_method not in {None, "edge_permutation", "provided_null"}:
         raise ValueError(
             "lens_enrich accepts null_method None, 'edge_permutation', or 'provided_null'; "
-            "use label_permutation_null/freedman_lane_null for subject-level inference"
+            "use SubjectLensAnalysis.glm for subject-level inference"
         )
     if null_method == "edge_permutation" and n_permutations < 1:
         raise ValueError("n_permutations must be >= 1")

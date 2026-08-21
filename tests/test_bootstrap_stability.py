@@ -6,10 +6,12 @@ from pandas.testing import assert_frame_equal
 from scipy.stats import beta
 
 from conlens import (
+    Contrast,
     LensAnalysis,
     LensResult,
     LensStabilityResult,
     lens_enrich,
+    make_design,
     summarize_bootstrap_stability,
 )
 
@@ -297,22 +299,33 @@ def test_subject_executor_is_reproducible_across_jobs():
         "back": {"1--2", "1--3", "2--3"},
     }
     analysis = LensAnalysis.from_subject_connectomes(connectomes, edge_sets)
-    observed = analysis.two_group(
-        groups,
-        null_method="label_permutation",
+    design = make_design(
+        indicators={"control": groups == 0, "case": groups == 1},
+        add_intercept=False,
+    )
+    contrasts = {
+        "case_vs_control": Contrast(
+            {"case": 1, "control": -1},
+            effect_size="hedges_g",
+            positive_direction="case > control",
+        )
+    }
+    observed = analysis.glm(
+        design,
+        contrasts,
         n_permutations=8,
         random_state=7,
         min_size=1,
-    )
+    )["case_vs_control"]
 
     def refit(sample, indices, fit_seed):
-        return sample.two_group(
-            groups[indices],
-            null_method="label_permutation",
+        return sample.glm(
+            design.take(indices),
+            contrasts,
             n_permutations=8,
             random_state=fit_seed,
             min_size=1,
-        )
+        )["case_vs_control"]
 
     options = {
         "n_bootstraps": 4,

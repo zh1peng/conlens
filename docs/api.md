@@ -1,46 +1,48 @@
 # API
 
-The stable top-level API is exported by `conlens`. Core enrichment includes
-`lens_enrich`, `compute_running_sum`, `compute_enrichment_score`, and
-`extract_leading_edges`. Data functions include `validate_connectome`,
-`validate_edge_table`, `canonicalize_edges`, `matrix_to_edges`, and
-`edges_to_matrix`. Set, inference, leading-network, stability, and comparison
-functions follow the names in the development specification.
+The subject-level API is a single named-contrast GLM workflow:
 
-`LensAnalysis` handles edge tables. `LensAnalysis.from_subject_connectomes` returns
-a `SubjectLensAnalysis` whose `two_group` and `glm` methods expose label permutation
-and Freedman–Lane explicitly. Every high-level result is a `LensResult` traceable to
-the same public low-level functions.
+```python
+from conlens import Contrast, LensAnalysis, make_design, plot_design
+
+design = make_design(
+    indicators={"control": diagnosis == "control", "g1": diagnosis == "g1"},
+    continuous={"age": age, "motion": mean_fd},
+    add_intercept=False,
+)
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g1 > control",
+    ),
+    "age": Contrast(
+        {"age": 1},
+        effect_size="partial_r",
+        positive_direction="increases with age",
+    ),
+}
+fit = analysis.glm(design, contrasts, n_permutations=10_000, random_state=1)
+```
+
+`make_design` semantic mode mean-centers continuous columns by default, never
+centers 0/1 indicators, constructs explicitly named interactions after centering,
+and adds an intercept by default. Cell-means group designs use
+`add_intercept=False`. Raw `matrix=` input is used exactly as supplied.
+
+`analysis.glm` returns `GLMResult`; indexing it by contrast name returns a
+`LensResult`. Each contrast receives its own constrained reduced model for
+Freedman–Lane, and all valid contrast-by-set P values are adjusted together by BH.
 
 ## Bootstrap stability APIs
 
-`SubjectLensAnalysis.bootstrap_stability` is the high-level full-pipeline subject
-bootstrap. Its `refit` callback receives the resampled analysis, the sampled
-original-row indices, and a replicate-specific seed. The callback must return a
-`LensResult` after repeating the edge model, null inference, ranking, LENS tests,
-and BH adjustment over the same correction family.
+`SubjectLensAnalysis.bootstrap_stability` receives one observed `LensResult` and a
+`refit` callback. In each callback use `design.take(indices)`, rerun the same full
+contrast family, and select the observed contrast from the resulting `GLMResult`.
 
-Formal summaries require a recorded `positive_direction` and reject changes in
-the analysis signature, edge/node mapping, correction family, null scheme, or
-whether exchangeability blocks were used. The first bootstrap result is validated
-before the remaining parallel jobs start. Built-in signatures record the
-two-group levels, GLM contrast, or phenotype callable; the callback remains
-responsible for preserving the scientific meaning of all subject-aligned design
-columns.
-
-`summarize_bootstrap_stability` applies the same observed-result-anchored summary to
-completed bootstrap `LensResult` objects generated elsewhere. Both routes return a
-`LensStabilityResult` with `set_summary`, `edge_summary`, `replicate_summary`, and
-metadata. Use `get_set(set_name)` and `edges_for(set_name)` for one tested set;
-`save` and `load` provide JSON round trips. As in `LensResult`, JSON converts tuple
-node labels to JSON arrays and reloads them as lists; use scalar string or integer
-node labels when exact Python label types must be retained.
-
-`bootstrap_lens` and `summarize_stability` remain the lower-level descriptive
-workflow. They summarize leading-edge localization across statistic replicates and
-do not, by themselves, require repeated subject-level inference, BH significance,
-or agreement with an observed direction. Their output must not be described as
-full-pipeline stability.
+`summarize_bootstrap_stability` summarizes compatible completed results generated
+elsewhere. `bootstrap_lens` and `summarize_stability` remain lower-level,
+descriptive localization tools and do not replace full subject-level refitting.
 
 ## Public reference
 

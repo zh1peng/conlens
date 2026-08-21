@@ -83,40 +83,57 @@ the weighted profile is
 \(ES=-0.666667\) and ranks 5–6 form the leading edge. Both are fixed numerical
 tests with absolute tolerance \(10^{-12}\).
 
-## 6. Null inference
+## 6. Subject-level edge effects
+
+For each edge, ConLens fits the full model \(y_e=X\beta_e+\varepsilon_e\), with
+\(df_{res}=n-\operatorname{rank}(X)\). For a one-degree-of-freedom contrast \(c\),
+the saved contrast estimate and t statistic are
+
+\[
+\hat\beta_{c,e}=c^T\hat\beta_e,
+\qquad
+t_{c,e}=\frac{\hat\beta_{c,e}}
+{s_{res,e}\sqrt{c^T(X^TX)^{-1}c}}.
+\]
+
+Continuous-variable contrasts rank edges by signed partial correlation,
+
+\[
+r_{partial,e}=\frac{t_{c,e}}{\sqrt{t_{c,e}^2+df_{res}}}.
+\]
+
+Group contrasts rank edges by model-adjusted signed Hedges' g,
+
+\[
+g_e=J\frac{\hat\beta_{c,e}}{s_{res,e}},
+\qquad J=1-\frac{3}{4df_{res}-1}.
+\]
+
+The residual SD always comes from the complete model, including every group,
+covariate, and interaction. Edge-wise P values are retained for audit but never
+used to prefilter the ranked edge universe.
+
+## 7. Null inference
 
 Inference is absent unless explicitly requested; descriptive output has `NES`, P,
-and q equal to `None`. The four supported null inputs are:
+and q equal to `None`. The three supported null paths are:
 
 - **Edge permutation:** one global permutation of statistics against edge IDs is
   shared by every set in a replicate. Set sizes and overlap are retained, but
-  shared-node, topological, spatial, and edge-covariance dependence are not. Its
-  scope is `competitive_edge_label`.
-- **Label permutation:** only for a simple phenotype/two-group design without
-  nuisance covariates under exchangeability. One legal subject-label permutation
-  is shared across all edges, after which all statistics, ranks, and ES values are
-  recomputed. Exchangeability blocks restrict permutations when supplied.
-- **Freedman–Lane:** for a tested design \(X\) and nuisance design \(Z\), where \(Z\)
-  explicitly contains an intercept. Fit the reduced model
-  \(Y=Z\gamma+\varepsilon\), obtain \(\hat Y_0\) and residual matrix \(R_0\), form
-  \(Y_b^*=\hat Y_0+P_bR_0\), then refit the full model. The same legal \(P_b\)
-  acts on every edge column.
+  shared-node, topological, spatial, and edge-covariance dependence are not.
+- **Contrast-specific Freedman–Lane:** for each contrast \(c\), construct the
+  constrained reduced design for \(H_0:c^T\beta=0\), obtain \(\hat Y_0\) and residual
+  matrix \(R_0\), form \(Y_b^*=\hat Y_0+P_bR_0\), then refit the full model. The same
+  legal \(P_b\) acts on every edge column, but different contrasts use their own
+  reduced models.
 - **Provided null:** accepts per-set null ES arrays, replicate-by-edge statistic
-  matrices, or complete rank matrices in observed edge order. Statistic matrices
-  recompute weighted ES normally. Rank-only input is accepted only with `weight=0`,
-  because ranks do not encode the magnitudes required for weighted hit increments.
-  Set definitions, finite values, edge count/order, and replicate counts are checked.
-  High-level analysis requires the supplied edge-ID order, complete set definitions,
-  and positive-direction label; all must match the observed analysis. The CLI uses a
-  structured JSON object with `data`, `edge_ids`, `edge_sets`, and
-  `positive_direction` fields.
+  matrices, or complete rank matrices in observed edge order. Rank-only input is
+  accepted only with `weight=0` because ranks do not retain effect magnitudes.
 
 Permutation inference defaults to 1,000 replicates when selected; publication
-guidance recommends at least 10,000. Every stochastic path accepts a seed. Replicate
-seeds are allocated before parallel dispatch so worker scheduling cannot change the
-sequence.
+guidance recommends at least 10,000. Every stochastic path accepts a seed.
 
-## 7. Sign-specific nominal P value
+## 8. Sign-specific nominal P value
 
 For positive observed ES, the sign-specific add-one empirical probability is
 
@@ -134,7 +151,7 @@ Zero ES has \(p=1\). Add-one correction prevents zero P values. Results include
 same-sign null counts, extreme count, replicate count, method name, and the exact
 minimum resolvable same-sign P value.
 
-## 8. Normalized enrichment score
+## 9. Normalized enrichment score
 
 Let \(\mu^+\) be the mean of nonnegative null scores and \(\mu^-\) the mean
 magnitude of nonpositive null scores. Then
@@ -148,10 +165,10 @@ NES=ES_{obs}/\mu^-\quad\text{for }ES_{obs}<0.
 Negative NES retains its sign. If the required side has no null scores or zero mean,
 NES is undefined; the opposite side is never substituted.
 
-## 9. Multiple testing
+## 10. Multiple testing
 
-Valid P values from one declared analysis/contrast/set family are adjusted with
-Benjamini–Hochberg FDR. Distinct phenotypes, cohorts, modalities, contrasts, or
+Valid P values from all contrasts and edge sets in one `analysis.glm` call are
+adjusted together with Benjamini–Hochberg FDR. Distinct cohorts, modalities, or
 exploratory/confirmatory families are not mixed unless the user explicitly defines
-that combined family. Output records the adjustment method, number of tested sets,
-and correction-family ID.
+that combined family. Output records the total number of tested contrast-by-set
+hypotheses and correction-family ID.

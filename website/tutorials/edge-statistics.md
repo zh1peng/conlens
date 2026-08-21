@@ -84,5 +84,4 @@ descriptive = lens_enrich(
 
 ## 何时不应使用 edge permutation？
 
-若原始数据包含受试者级 connectome，edge permutation 通常不是最贴合依赖结构的方案。优先转入 [受试者两组分析](/tutorials/subject-two-group) 或 [含协变量的 GLM](/tutorials/glm)。
-
+若原始数据包含受试者级 connectome，edge permutation 通常不是最贴合依赖结构的方案。优先转入 [Design matrix 与 contrasts](/tutorials/design-and-contrasts)，使用统一 GLM 和 contrast-specific Freedman–Lane。

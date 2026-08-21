@@ -10,8 +10,9 @@ import pandas as pd
 
 from .core import lens_enrich
 from .data import matrix_to_edges, validate_connectome
-from .inference import apply_null_inference, freedman_lane_null, label_permutation_null
-from .results import LensResult, LensStabilityResult
+from .design import Contrast, DesignMatrix
+from .inference import _freedman_lane_null, adjust_pvalues, apply_null_inference
+from .results import GLMResult, LensResult, LensStabilityResult
 from .stability import (
     _validate_compatible_result,
     _validate_complete_result,
@@ -19,7 +20,7 @@ from .stability import (
     bootstrap_lens,
     summarize_bootstrap_stability,
 )
-from .stats import edge_correlation, glm_statistic, two_group_ttest
+from .stats import glm_contrast_statistics
 
 
 class LensAnalysis:
@@ -85,7 +86,7 @@ class SubjectLensAnalysis:
         self.edge_sets = {name: set(members) for name, members in edge_sets.items()}
         self.directed = directed
         self.defaults = defaults
-        self.result_: LensResult | None = None
+        self.result_: GLMResult | None = None
 
     def bootstrap(
         self,
@@ -235,203 +236,194 @@ class SubjectLensAnalysis:
         sample.result_ = None
         return sample
 
-    def two_group(
-        self,
-        labels: Iterable[Any],
-        *,
-        null_method: str | None = None,
-        n_permutations: int = 1000,
-        random_state: int | None = None,
-        exchangeability_blocks: Iterable[Any] | None = None,
-        **options: Any,
-    ) -> LensResult:
-        group_labels = np.asarray(list(labels))
-        statistics = two_group_ttest(self.data, group_labels)
-        edges = self.edge_template.copy()
-        edges["statistic"] = statistics
-        parameters = {**self.defaults, **options, "directed": self.directed}
-        unique_groups = np.unique(group_labels)
-        low_group, high_group = unique_groups.tolist()
-        parameters.setdefault("positive_direction", f"{high_group!r} > {low_group!r}")
-        result = lens_enrich(edges, self.edge_sets, null_method=None, **parameters)
-        result.metadata["analysis_signature"] = {
-            "kind": "two_group",
-            "group_levels": [repr(low_group), repr(high_group)],
-        }
-        if null_method is None:
-            self.result_ = result
-            return result
-        if null_method != "label_permutation":
-            raise ValueError("two_group supports null_method None or 'label_permutation'")
-        null = label_permutation_null(
-            self.data,
-            group_labels,
-            self.edge_template["edge_id"],
-            self.edge_sets,
-            n_permutations=n_permutations,
-            random_state=random_state,
-            exchangeability_blocks=exchangeability_blocks,
-            weight=parameters.get("weight", 1.0),
-            score_type=parameters.get("score_type", "standard"),
-        )
-        apply_null_inference(
-            result, null, correction_family_id=parameters.get("correction_family_id", "default")
-        )
-        result.metadata.update(
-            null_method="label_permutation",
-            permutation_scheme="shared_subject_label_permutation",
-            n_permutations=n_permutations,
-            random_seed=random_state,
-            inference_status="complete",
-            exchangeability_blocks_summary=_block_summary(exchangeability_blocks),
-        )
-        self.result_ = result
-        return result
-
     def glm(
         self,
-        tested_design: np.ndarray,
-        nuisance_design: np.ndarray,
+        design: DesignMatrix,
+        contrasts: Mapping[str, Contrast],
         *,
-        contrast: np.ndarray | None = None,
-        null_method: str | None = None,
-        n_permutations: int = 1000,
+        n_permutations: int | None = 1000,
         random_state: int | None = None,
         exchangeability_blocks: Iterable[Any] | None = None,
+        correction_family_id: str = "default",
         **options: Any,
-    ) -> LensResult:
-        tested = np.asarray(tested_design, float)
-        if tested.ndim == 1:
-            tested = tested[:, None]
-        nuisance = np.asarray(nuisance_design, float)
-        if nuisance.ndim == 1:
-            nuisance = nuisance[:, None]
-        if not np.any(np.all(np.isclose(nuisance, 1.0), axis=0)):
-            raise ValueError("nuisance_design must explicitly contain an intercept column")
-        full = np.column_stack([tested, nuisance])
-        c = np.zeros(full.shape[1])
-        if contrast is None:
-            c[0] = 1
-        else:
-            supplied = np.asarray(contrast, float).reshape(-1)
-            if len(supplied) == tested.shape[1]:
-                c[: tested.shape[1]] = supplied
-            elif len(supplied) == full.shape[1]:
-                c = supplied
-            else:
-                raise ValueError("contrast must match tested or full design columns")
-        statistics = glm_statistic(self.data, full, c)
-        edges = self.edge_template.copy()
-        edges["statistic"] = statistics
+    ) -> GLMResult:
+        """Fit named GLM contrasts and run contrast-specific Freedman-Lane inference."""
+        if not isinstance(design, DesignMatrix):
+            raise TypeError("design must be created with make_design()")
+        if design.n_observations != len(self.data):
+            raise ValueError("design must contain one row per subject")
+        if not isinstance(contrasts, Mapping) or not contrasts:
+            raise ValueError("contrasts must be a non-empty mapping of names to Contrast objects")
+        if any(not isinstance(name, str) or not name for name in contrasts):
+            raise ValueError("contrast names must be non-empty strings")
+        if any(not isinstance(specification, Contrast) for specification in contrasts.values()):
+            raise TypeError("every contrast specification must be a Contrast object")
+        if n_permutations is not None and (
+            not isinstance(n_permutations, int) or n_permutations < 1
+        ):
+            raise ValueError("n_permutations must be None or a positive integer")
+        if not isinstance(correction_family_id, str) or not correction_family_id:
+            raise ValueError("correction_family_id must be a non-empty string")
+
+        block_values = None if exchangeability_blocks is None else list(exchangeability_blocks)
+        block_summary = _block_summary(block_values, len(self.data))
         parameters = {**self.defaults, **options, "directed": self.directed}
-        parameters.setdefault("positive_direction", "positive tested contrast")
-        result = lens_enrich(edges, self.edge_sets, null_method=None, **parameters)
-        result.metadata["analysis_signature"] = {
-            "kind": "glm",
-            "n_tested_columns": tested.shape[1],
-            "n_nuisance_columns": nuisance.shape[1],
-            "contrast_vector": c.tolist(),
-        }
-        if null_method is None:
-            self.result_ = result
-            return result
-        if null_method != "freedman_lane":
-            raise ValueError("glm supports null_method None or 'freedman_lane'")
-        null = freedman_lane_null(
-            self.data,
-            tested,
-            nuisance,
-            self.edge_template["edge_id"],
-            self.edge_sets,
-            contrast=contrast,
-            n_permutations=n_permutations,
-            random_state=random_state,
-            exchangeability_blocks=exchangeability_blocks,
-            weight=parameters.get("weight", 1.0),
-            score_type=parameters.get("score_type", "standard"),
-        )
-        apply_null_inference(
-            result, null, correction_family_id=parameters.get("correction_family_id", "default")
-        )
-        result.metadata.update(
-            null_method="freedman_lane",
-            permutation_scheme="shared_reduced_model_residual_permutation",
-            n_permutations=n_permutations,
-            random_seed=random_state,
-            inference_status="complete",
-            exchangeability_blocks_summary=_block_summary(exchangeability_blocks),
-        )
-        self.result_ = result
-        return result
+        for owned in (
+            "positive_direction",
+            "statistic_name",
+            "null_method",
+            "n_permutations",
+            "random_state",
+            "correction_family_id",
+        ):
+            parameters.pop(owned, None)
 
-    def phenotype(
-        self,
-        phenotype: Iterable[float],
-        *,
-        statistic_function=edge_correlation,
-        null_method: str | None = None,
-        n_permutations: int = 1000,
-        random_state: int | None = None,
-        exchangeability_blocks: Iterable[Any] | None = None,
-        **options: Any,
-    ) -> LensResult:
-        """Analyze a simple phenotype design without nuisance covariates."""
-        target = np.asarray(list(phenotype), dtype=float)
-        statistics = np.asarray(statistic_function(self.data, target), dtype=float)
-        if statistics.shape != (self.data.shape[1],) or not np.isfinite(statistics).all():
-            raise ValueError("statistic_function must return one finite statistic per edge")
-        edges = self.edge_template.copy()
-        edges["statistic"] = statistics
-        parameters = {**self.defaults, **options, "directed": self.directed}
-        parameters.setdefault("positive_direction", "positive phenotype association")
-        result = lens_enrich(edges, self.edge_sets, null_method=None, **parameters)
-        result.metadata["analysis_signature"] = {
-            "kind": "phenotype",
-            "statistic_function": _callable_identifier(statistic_function),
-        }
-        if null_method is None:
-            self.result_ = result
-            return result
-        if null_method != "label_permutation":
-            raise ValueError("phenotype supports null_method None or 'label_permutation'")
-        null = label_permutation_null(
-            self.data,
-            target,
-            self.edge_template["edge_id"],
-            self.edge_sets,
-            n_permutations=n_permutations,
-            random_state=random_state,
-            exchangeability_blocks=exchangeability_blocks,
-            weight=parameters.get("weight", 1.0),
-            score_type=parameters.get("score_type", "standard"),
-            statistic_function=statistic_function,
+        outputs: dict[str, LensResult] = {}
+        resolved: dict[str, np.ndarray] = {}
+        for contrast_name, specification in contrasts.items():
+            weights = specification.resolve(design)
+            resolved[contrast_name] = weights
+            statistics = glm_contrast_statistics(
+                self.data,
+                design.values,
+                weights,
+                effect_size=specification.effect_size,
+            )
+            edges = self.edge_template.copy()
+            edges["statistic"] = statistics.effect_size
+            edges["effect_size"] = statistics.effect_size
+            edges["contrast_estimate"] = statistics.contrast_estimate
+            edges["standard_error"] = statistics.standard_error
+            edges["t_statistic"] = statistics.t_statistic
+            edges["residual_df"] = statistics.residual_df
+            edges["edge_p_value_two_sided"] = statistics.p_value_two_sided
+            edges["residual_sd"] = statistics.residual_sd
+            statistic_name = (
+                "partial correlation"
+                if specification.effect_size == "partial_r"
+                else "model-adjusted Hedges' g"
+            )
+            result = lens_enrich(
+                edges,
+                self.edge_sets,
+                null_method=None,
+                statistic_name=statistic_name,
+                positive_direction=specification.positive_direction,
+                correction_family_id=correction_family_id,
+                **parameters,
+            )
+            result.metadata.update(
+                {
+                    "analysis_signature": {
+                        "kind": "glm_contrast",
+                        "design": design.signature(),
+                        "contrast_name": contrast_name,
+                        "contrast_vector": weights.tolist(),
+                        "effect_size": specification.effect_size,
+                    },
+                    "contrast_name": contrast_name,
+                    "contrast_vector": weights.tolist(),
+                    "effect_size": specification.effect_size,
+                    "residual_df": statistics.residual_df,
+                    "null_method": None,
+                    "permutation_scheme": None,
+                    "n_permutations": 0,
+                    "random_seed": random_state,
+                    "inference_status": "not_requested",
+                    "exchangeability_blocks_summary": block_summary,
+                }
+            )
+            outputs[contrast_name] = result
+
+        if n_permutations is not None:
+            for contrast_name, specification in contrasts.items():
+                null = _freedman_lane_null(
+                    self.data,
+                    design,
+                    specification,
+                    self.edge_template["edge_id"],
+                    self.edge_sets,
+                    n_permutations=n_permutations,
+                    random_state=random_state,
+                    exchangeability_blocks=block_values,
+                    weight=parameters.get("weight", 1.0),
+                    score_type=parameters.get("score_type", "standard"),
+                    canonical_edge_ids=self.edge_template["canonical_edge_id"],
+                )
+                result = outputs[contrast_name]
+                apply_null_inference(result, null, correction_family_id=correction_family_id)
+                result.metadata.update(
+                    {
+                        "null_method": "freedman_lane",
+                        "permutation_scheme": "contrast_specific_freedman_lane",
+                        "n_permutations": n_permutations,
+                        "random_seed": random_state,
+                        "inference_status": "complete",
+                        "exchangeability_blocks_summary": block_summary,
+                    }
+                )
+
+            tested_sets = [
+                item
+                for result in outputs.values()
+                for item in result.sets
+                if item.status == "ok"
+            ]
+            pvalues = [item.p_value for item in tested_sets]
+            if any(value is None for value in pvalues):
+                raise ArithmeticError("joint inference produced a missing P value")
+            qvalues = adjust_pvalues(float(value) for value in pvalues if value is not None)
+            for item, qvalue in zip(tested_sets, qvalues, strict=True):
+                item.q_value = float(qvalue)
+            for result in outputs.values():
+                result.metadata.update(
+                    {
+                        "adjustment_method": "BH",
+                        "multiple_testing_method": "BH",
+                        "n_sets_tested": len(tested_sets),
+                        "correction_family_id": correction_family_id,
+                    }
+                )
+
+        collection = GLMResult(
+            contrasts=outputs,
+            metadata={
+                "design": design.metadata(),
+                "contrasts": {
+                    name: {
+                        "weights": resolved[name].tolist(),
+                        "effect_size": specification.effect_size,
+                        "positive_direction": specification.positive_direction,
+                    }
+                    for name, specification in contrasts.items()
+                },
+                "n_permutations": 0 if n_permutations is None else n_permutations,
+                "permutation_scheme": None
+                if n_permutations is None
+                else "contrast_specific_freedman_lane",
+                "adjustment_method": None if n_permutations is None else "BH",
+                "correction_family_id": correction_family_id,
+            },
         )
-        apply_null_inference(
-            result, null, correction_family_id=parameters.get("correction_family_id", "default")
-        )
-        result.metadata.update(
-            null_method="label_permutation",
-            permutation_scheme="shared_subject_phenotype_permutation",
-            n_permutations=n_permutations,
-            random_seed=random_state,
-            inference_status="complete",
-            exchangeability_blocks_summary=_block_summary(exchangeability_blocks),
-        )
-        self.result_ = result
-        return result
+        self.result_ = collection
+        return collection
 
 
-def _block_summary(blocks: Iterable[Any] | None) -> dict[str, int] | None:
+def _block_summary(
+    blocks: Iterable[Any] | None, n_observations: int
+) -> dict[str, int] | None:
     if blocks is None:
         return None
-    values = np.asarray(list(blocks))
-    return {"n_blocks": int(len(np.unique(values))), "n_observations": int(len(values))}
-
-
-def _callable_identifier(function: Callable[..., Any]) -> str:
-    module = getattr(function, "__module__", type(function).__module__)
-    name = getattr(function, "__qualname__", type(function).__qualname__)
-    return f"{module}.{name}"
+    values = list(blocks)
+    if len(values) != n_observations:
+        raise ValueError("exchangeability_blocks must contain one value per subject")
+    if any(_contains_missing(value) for value in values):
+        raise ValueError("exchangeability_blocks cannot contain missing values")
+    try:
+        _, unique = pd.factorize(pd.Series(values, dtype=object), sort=False)
+    except TypeError as exc:
+        raise ValueError("exchangeability_blocks values must be hashable") from exc
+    return {"n_blocks": int(len(unique)), "n_observations": len(values)}
 
 
 def _contains_missing(value: Any) -> bool:

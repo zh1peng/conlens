@@ -17,12 +17,11 @@ from .data import (
     validate_connectome,
     validate_edge_table,
 )
+from .design import Contrast, DesignMatrix, make_design
 from .inference import (
     adjust_pvalues,
     edge_permutation_null,
     empirical_pvalue,
-    freedman_lane_null,
-    label_permutation_null,
     normalize_enrichment_scores,
     permutation_test,
     provided_null,
@@ -33,7 +32,8 @@ from .leading import (
     identify_leading_hubs,
     summarize_leading_network,
 )
-from .results import LeadingNetwork, LensResult, LensSetResult, LensStabilityResult
+from .plotting import plot_design
+from .results import GLMResult, LeadingNetwork, LensResult, LensSetResult, LensStabilityResult
 from .sets import (
     make_custom_edge_sets,
     make_hemisphere_sets,
@@ -49,6 +49,9 @@ from .stability import (
 )
 
 __all__ = [
+    "Contrast",
+    "DesignMatrix",
+    "GLMResult",
     "LeadingNetwork",
     "LensAnalysis",
     "LensResult",
@@ -70,17 +73,17 @@ __all__ = [
     "edges_to_matrix",
     "empirical_pvalue",
     "extract_leading_edges",
-    "freedman_lane_null",
     "identify_leading_hubs",
-    "label_permutation_null",
     "lens_enrich",
     "make_custom_edge_sets",
+    "make_design",
     "make_hemisphere_sets",
     "make_network_pair_sets",
     "make_within_network_sets",
     "matrix_to_edges",
     "normalize_enrichment_scores",
     "permutation_test",
+    "plot_design",
     "provided_null",
     "rank_edges",
     "summarize_leading_network",

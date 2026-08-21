@@ -79,8 +79,8 @@ inferred = lens_enrich(
 ```
 
 The edge-label null is competitive and does **not** preserve shared-node,
-topological, spatial, or edge-covariance dependence. Use subject-level label
-permutation or Freedman–Lane where the design permits it.
+topological, spatial, or edge-covariance dependence. Subject-level analyses use
+the unified design-matrix/contrast GLM with contrast-specific Freedman–Lane inference.
 
 ## Full-pipeline bootstrap stability
 

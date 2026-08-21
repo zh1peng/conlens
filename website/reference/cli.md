@@ -46,5 +46,5 @@ result = LensResult.load("result.json")
 print(result.to_frame())
 ```
 
-CLI 适合已经准备好 edge-statistics 和 set definitions 的批处理。需要 subject-level label permutation、Freedman–Lane 或 full-pipeline bootstrap 时，使用 Python API。
-
+CLI 适合已经准备好 edge-statistics 和 set definitions 的批处理。需要统一 subject-level
+GLM、contrast-specific Freedman–Lane 或 full-pipeline bootstrap 时，使用 Python API。

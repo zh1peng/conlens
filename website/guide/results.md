@@ -7,9 +7,11 @@ description: LensResult、leading-edge network 与序列化
 
 ## LensResult
 
-`lens_enrich`、`two_group`、`phenotype` 与 `glm` 都返回 `LensResult`。
+`lens_enrich` 返回一个 `LensResult`。`analysis.glm()` 返回 `GLMResult`，其中每个具名
+contrast 对应一个 `LensResult`。
 
 ```python
+result = glm_results["g1_vs_control"]
 frame = result.to_frame()
 item = result.get("DMN--VIS")
 ```
@@ -69,4 +71,3 @@ restored = LensResult.load("result.json")
 ```
 
 JSON 包含结果表、排序边表与分析元数据，适合长期保存和审计。
-

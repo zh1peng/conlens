@@ -33,8 +33,8 @@ ConLens 是 LENS（Leading-edge Network Set enrichment）的透明、可复现�
 ## 适用场景
 
 - 已有一张完整的连接统计量表，需要检验预定义网络对或自定义连接集合。
-- 有受试者 × 节点 × 节点的 connectome，需要进行两组、表型或 GLM 分析。
-- 希望在保留连接依赖结构的前提下使用 subject-level label permutation 或 Freedman–Lane。
+- 有受试者 × 节点 × 节点的 connectome，需要分析连续变量、组间 contrasts 或 covariates。
+- 希望用统一 GLM 和 contrast-specific Freedman–Lane 保留 subject-level 连接依赖结构。
 - 希望提取 leading-edge network，并评估完整分析流程的 bootstrap 稳定性。
 
 ## 不适合直接使用的场景
@@ -49,4 +49,3 @@ ConLens 是 LENS（Leading-edge Network Set enrichment）的透明、可复现�
 - [安装 ConLens](/guide/installation)
 - [五分钟快速开始](/guide/quick-start)
 - [理解推断与零模型](/guide/inference)
-

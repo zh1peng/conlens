@@ -132,6 +132,65 @@ class LensResult:
         return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
+@dataclass(slots=True)
+class GLMResult:
+    """Named LENS results from one jointly adjusted multi-contrast GLM."""
+
+    contrasts: dict[str, LensResult]
+    metadata: dict[str, Any]
+
+    def __getitem__(self, contrast_name: str) -> LensResult:
+        return self.contrasts[contrast_name]
+
+    def get(self, contrast_name: str) -> LensResult:
+        try:
+            return self.contrasts[contrast_name]
+        except KeyError:
+            raise KeyError(contrast_name) from None
+
+    @property
+    def contrast_names(self) -> tuple[str, ...]:
+        return tuple(self.contrasts)
+
+    def to_frame(self) -> pd.DataFrame:
+        frames = []
+        for name, result in self.contrasts.items():
+            frame = result.to_frame()
+            frame.insert(0, "contrast_name", name)
+            frames.append(frame)
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    def to_dict(self) -> dict[str, Any]:
+        return _jsonable(
+            {
+                "contrasts": {name: result.to_dict() for name, result in self.contrasts.items()},
+                "metadata": self.metadata,
+            }
+        )
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> GLMResult:
+        data = _restore(payload)
+        return cls(
+            contrasts={
+                name: LensResult.from_dict(result) for name, result in data["contrasts"].items()
+            },
+            metadata=data["metadata"],
+        )
+
+    def save(self, path: str | Path) -> Path:
+        destination = Path(path)
+        destination.write_text(
+            json.dumps(self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False),
+            encoding="utf-8",
+        )
+        return destination
+
+    @classmethod
+    def load(cls, path: str | Path) -> GLMResult:
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
 def _frame_payload(frame: pd.DataFrame) -> dict[str, Any]:
     return {"columns": frame.columns.tolist(), "records": frame.to_dict(orient="records")}
 

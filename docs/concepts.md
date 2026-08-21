@@ -39,6 +39,6 @@ model and is neither an effect size nor a standardized regression coefficient.
 ## Why the null model matters
 
 Different nulls answer different questions and preserve different dependencies.
-Edge-label permutation is competitive but breaks connectome dependence. Subject
-label permutation preserves the connectome vector when observations are exchangeable.
-Freedman–Lane handles nuisance covariates by permuting reduced-model residual rows.
+Edge-label permutation is competitive but breaks connectome dependence. Subject-level
+GLM inference uses a contrast-specific Freedman–Lane reduced model and applies the
+same legal residual-row permutation across every edge.

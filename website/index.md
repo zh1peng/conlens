@@ -9,8 +9,7 @@
 ## 你现在拥有什么数据？
 
 - **已经计算好的边统计量**：从[边统计量输入教程](/tutorials/edge-statistics)开始。
-- **受试者 × 边数据与两组标签**：进入[受试者两组分析](/tutorials/subject-two-group)。
-- **需要控制协变量的受试者数据**：进入[含协变量的 GLM](/tutorials/glm)。
+- **受试者级连续变量或组间比较**：进入[Design matrix 与 contrasts](/tutorials/design-and-contrasts)。
 - **已经完成正式推断并希望评估复现性**：进入[全流程 bootstrap 稳定性](/tutorials/stability)。
 
 第一次使用建议先完成[安装](/guide/installation)和[五分钟快速开始](/guide/quick-start)。
@@ -18,8 +17,8 @@
 ## ConLens 会做什么？
 
 - 使用全部有效连接的有符号统计量进行网络级排序富集；
-- 显式区分 edge permutation、label permutation、Freedman–Lane 和 provided null；
-- 在同一校正 family 中对集合结果执行 BH 校正；
+- 显式区分 edge permutation、contrast-specific Freedman–Lane 和 provided null；
+- 在同一 GLM family 中对全部 contrast × set 结果执行联合 BH；
 - 提取并导出 leading-edge 边、节点和分析元数据；
 - 在受试者 bootstrap 中重新拟合边模型、内部零假设推断、LENS 与 BH。
 

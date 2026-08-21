@@ -11,17 +11,41 @@ description: 运行 observed-aware full-pipeline subject bootstrap
 
 ```python
 import numpy as np
+from conlens import Contrast, make_design
 
-group = np.asarray(group)
+diagnosis = np.asarray(diagnosis)
 site = np.asarray(site)
 
-observed = analysis.two_group(
-    group,
-    null_method="label_permutation",
+design = make_design(
+    indicators={
+        "control": diagnosis == "control",
+        "g1": diagnosis == "g1",
+        "g2": diagnosis == "g2",
+    },
+    continuous={"age": age},
+    add_intercept=False,
+)
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g1 > control",
+    ),
+    "g2_vs_control": Contrast(
+        {"g2": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g2 > control",
+    ),
+}
+
+observed_family = analysis.glm(
+    design,
+    contrasts,
     exchangeability_blocks=site,
     n_permutations=10_000,
     random_state=1,
 )
+observed = observed_family["g1_vs_control"]
 ```
 
 Observed result 必须包含 q 值、明确的 `positive_direction` 和完整分析身份元数据。
@@ -30,13 +54,14 @@ Observed result 必须包含 q 值、明确的 `positive_direction` 和完整分
 
 ```python
 def refit(sample, indices, fit_seed):
-    return sample.two_group(
-        group[indices],
-        null_method="label_permutation",
+    # 必须重跑同一个 joint contrast family，再取出 observed contrast。
+    return sample.glm(
+        design.take(indices),
+        contrasts,
         exchangeability_blocks=site[indices],
         n_permutations=10_000,
         random_state=fit_seed,
-    )
+    )["g1_vs_control"]
 ```
 
 Callback 收到：
@@ -45,12 +70,13 @@ Callback 收到：
 - `indices`：对应原始受试者行的索引；
 - `fit_seed`：专用于该 replicate 内部推断的 seed。
 
-每个与受试者对齐的 label、design row、covariate 和 permutation block 都必须用 `indices` 同步索引。
+`design.take(indices)` 同步索引实际 design rows，同时保留原始中心化与 construction
+provenance。每个 subject-aligned permutation block 也必须使用相同 `indices`。
 
 ## 3. 运行 outer bootstrap
 
 ```python
-strata = list(zip(site, group, strict=True))
+strata = list(zip(site, diagnosis, strict=True))
 
 stability = analysis.bootstrap_stability(
     observed,
@@ -66,7 +92,7 @@ stability = analysis.bootstrap_stability(
 )
 ```
 
-`strata` 控制 outer subject bootstrap；`exchangeability_blocks` 控制 inner permutation。它们承担不同任务。对于多 site 两组设计，组合 `site × group` strata 可以在每次重抽中保持各层样本数。
+`strata` 控制 outer subject bootstrap；`exchangeability_blocks` 控制 inner permutation。它们承担不同任务。对于多 site 分组设计，组合 `site × diagnosis` strata 可以在每次重抽中保持各层样本数。
 
 ::: warning 当前 resampling 边界
 当前 executor 支持独立受试者和分层受试者 bootstrap，不支持 family/repeated-measure cluster bootstrap，也不支持 checkpoint/resume。不要把 cluster 中的每一行当成独立 bootstrap 单元。
@@ -107,4 +133,3 @@ Observed 中未通过 `q_value <= significance_alpha` 的 set 默认不进入正
 ## 7. 不要混淆 legacy workflow
 
 `bootstrap_lens` + `summarize_stability` 仍用于描述性的 leading-edge localization sensitivity。它不会自动重复高层 subject null inference，也不会按 observed BH 显著性与方向 gate，因此不能改名为 full-pipeline stability。
-

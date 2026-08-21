@@ -10,12 +10,92 @@ import numpy as np
 import pandas as pd
 
 from .core import compute_running_sum
+from .design import Contrast, DesignMatrix
 from .leading import compute_node_participation
 from .results import LeadingNetwork, LensResult
 
 
 def _axes(ax=None):
     return ax if ax is not None else plt.subplots()[1]
+
+
+def plot_design(
+    design: DesignMatrix,
+    contrasts: Mapping[str, Contrast],
+    axes=None,
+):
+    """Show a validated design matrix beside its named contrast vectors."""
+    if not isinstance(design, DesignMatrix):
+        raise TypeError("design must be created with make_design()")
+    if not contrasts:
+        raise ValueError("contrasts must not be empty")
+    if any(not isinstance(specification, Contrast) for specification in contrasts.values()):
+        raise TypeError("every contrast specification must be a Contrast object")
+    if axes is None:
+        _, axes = plt.subplots(
+            1,
+            2,
+            figsize=(max(7, design.n_columns * 0.8 + len(contrasts) * 0.45), 5),
+            gridspec_kw={"width_ratios": [2.4, 1]},
+            constrained_layout=True,
+        )
+    design_ax, contrast_ax = np.asarray(axes, dtype=object).reshape(-1)
+
+    values = design.values
+    scale = np.max(np.abs(values), axis=0)
+    display = values / np.where(scale == 0, 1.0, scale)
+    design_image = design_ax.imshow(display, cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+    design_ax.set(
+        title=(
+            f"Design matrix  ·  n={design.n_observations}, rank={design.n_columns}\n"
+            f"condition number={design.condition_number:.3g}"
+        ),
+        xlabel="Regressors",
+        ylabel="Observations",
+        xticks=np.arange(design.n_columns),
+        xticklabels=design.columns,
+    )
+    design_ax.tick_params(axis="x", rotation=45)
+    design_ax.figure.colorbar(design_image, ax=design_ax, shrink=0.72, label="Column-scaled value")
+
+    names = list(contrasts)
+    weights = np.vstack([contrasts[name].resolve(design) for name in names])
+    maximum = float(np.max(np.abs(weights)))
+    contrast_image = contrast_ax.imshow(
+        weights,
+        cmap="RdBu_r",
+        vmin=-maximum,
+        vmax=maximum,
+        aspect="auto",
+    )
+    contrast_ax.set(
+        title="Contrasts",
+        xlabel="Regressors",
+        xticks=np.arange(design.n_columns),
+        xticklabels=design.columns,
+        yticks=np.arange(len(names)),
+        yticklabels=names,
+    )
+    contrast_ax.tick_params(axis="x", rotation=45)
+    if weights.size <= 80:
+        for row, column in np.ndindex(weights.shape):
+            value = weights[row, column]
+            contrast_ax.text(
+                column,
+                row,
+                f"{value:g}",
+                ha="center",
+                va="center",
+                color="white" if abs(value) > maximum * 0.55 else "0.15",
+                fontsize=8,
+            )
+    contrast_ax.figure.colorbar(
+        contrast_image,
+        ax=contrast_ax,
+        shrink=0.72,
+        label="Contrast weight",
+    )
+    return np.asarray([design_ax, contrast_ax], dtype=object)
 
 
 def plot_ranked_statistics(result: LensResult, ax=None):

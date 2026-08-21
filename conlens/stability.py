@@ -102,7 +102,7 @@ def bootstrap_lens(
 
     ``statistic_function`` receives the resampled subject-by-edge matrix and the
     original-row indices used for that replicate. The indices let callers resample
-    phenotype labels and covariates with exactly the same bootstrap draw.
+    subject-aligned design rows and covariates with exactly the same bootstrap draw.
     """
     n_sources = sum(source is not None for source in (statistic_replicates, results, subject_data))
     if n_sources != 1:

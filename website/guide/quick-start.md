@@ -54,7 +54,7 @@ result = lens_enrich(
 `positive_direction` 是结果解释的一部分。正富集表示集合边集中在“case > control”的一端；负富集表示集中在相反一端。
 
 ::: warning 关于 edge permutation
-该零模型会打乱统计量与 edge ID 的对应关系，因此不保留共享节点、拓扑、空间结构或边间协方差。若有受试者级数据并且设计允许，优先考虑 label permutation 或 Freedman–Lane。
+该零模型会打乱统计量与 edge ID 的对应关系，因此不保留共享节点、拓扑、空间结构或边间协方差。若有受试者级数据，优先考虑统一 GLM 的 contrast-specific Freedman–Lane。
 :::
 
 ## 4. 查看结果
@@ -84,4 +84,3 @@ result.save("conlens-result.json")
 JSON 中同时保存集合结果、完整排序边表和关键元数据，包括排序规则、零模型、随机种子、方向标签和软件版本。
 
 下一步可阅读 [数据与 edge sets](/guide/data-and-sets) 或进入 [边统计量完整教程](/tutorials/edge-statistics)。
-

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.linalg import null_space
 
 from .core import compute_enrichment_score, compute_running_sum, rank_edges
+from .design import Contrast, DesignMatrix
 from .results import LensResult
-from .stats import glm_statistic, two_group_ttest
+from .stats import glm_contrast_statistics
 
 
 def adjust_pvalues(pvalues: Iterable[float], method: str = "BH") -> np.ndarray:
@@ -150,20 +152,25 @@ def _permutation_indices(
 ) -> np.ndarray:
     if blocks is None:
         return rng.permutation(n_observations)
-    block_values = np.asarray(list(blocks))
-    if block_values.ndim != 1 or len(block_values) != n_observations:
+    block_values = list(blocks)
+    if len(block_values) != n_observations:
         raise ValueError("exchangeability_blocks must contain one value per observation")
+    try:
+        block_codes, _ = pd.factorize(pd.Series(block_values, dtype=object), sort=False)
+    except TypeError as exc:
+        raise ValueError("exchangeability_blocks values must be hashable") from exc
     indices = np.arange(n_observations)
     output = indices.copy()
-    for block in np.unique(block_values):
-        members = indices[block_values == block]
+    for block in np.unique(block_codes):
+        members = indices[block_codes == block]
         output[members] = rng.permutation(members)
     return output
 
 
-def label_permutation_null(
+def _freedman_lane_null(
     data: np.ndarray,
-    labels: Iterable[Any],
+    design: DesignMatrix,
+    contrast: Contrast,
     edge_ids: Iterable[str],
     edge_sets: Mapping[str, set[str]],
     *,
@@ -172,96 +179,39 @@ def label_permutation_null(
     exchangeability_blocks: Iterable[Any] | None = None,
     weight: float = 1.0,
     score_type: str = "standard",
-    statistic_function: Callable[[np.ndarray, np.ndarray], np.ndarray] = two_group_ttest,
     canonical_edge_ids: Iterable[str] | None = None,
 ) -> dict[str, np.ndarray]:
-    if n_permutations < 1:
-        raise ValueError("n_permutations must be >= 1")
-    values = np.asarray(data, dtype=float)
-    group_labels = np.asarray(list(labels))
-    identifiers = np.asarray(list(edge_ids), dtype=str)
-    canonical_identifiers = (
-        None if canonical_edge_ids is None else np.asarray(list(canonical_edge_ids), dtype=str)
-    )
-    if values.ndim != 2 or values.shape != (len(group_labels), len(identifiers)):
-        raise ValueError("data shape must match labels and edge_ids")
-    if not np.isfinite(values).all():
-        raise ValueError("subject-level data must be finite")
-    rng = np.random.default_rng(random_state)
-    output = {name: np.empty(n_permutations) for name in edge_sets}
-    for replicate in range(n_permutations):
-        indices = _permutation_indices(len(values), rng, exchangeability_blocks)
-        statistics = np.asarray(statistic_function(values, group_labels[indices]), dtype=float)
-        if statistics.shape != (len(identifiers),) or not np.isfinite(statistics).all():
-            raise ValueError("statistic_function must return one finite statistic per edge")
-        scores = _score_sets(
-            identifiers,
-            statistics,
-            edge_sets,
-            weight=weight,
-            score_type=score_type,
-            canonical_edge_ids=canonical_identifiers,
-        )
-        for name, score in scores.items():
-            output[name][replicate] = score
-    return output
-
-
-def freedman_lane_null(
-    data: np.ndarray,
-    tested_design: np.ndarray,
-    nuisance_design: np.ndarray,
-    edge_ids: Iterable[str],
-    edge_sets: Mapping[str, set[str]],
-    *,
-    contrast: np.ndarray | None = None,
-    n_permutations: int = 1000,
-    random_state: int | None = None,
-    exchangeability_blocks: Iterable[Any] | None = None,
-    weight: float = 1.0,
-    score_type: str = "standard",
-    canonical_edge_ids: Iterable[str] | None = None,
-) -> dict[str, np.ndarray]:
+    """Contrast-specific Freedman-Lane null for one signed effect size."""
     if n_permutations < 1:
         raise ValueError("n_permutations must be >= 1")
     y = np.asarray(data, dtype=float)
-    tested = np.asarray(tested_design, dtype=float)
-    nuisance = np.asarray(nuisance_design, dtype=float)
+    x = design.values
+    c = contrast.resolve(design)
     identifiers = np.asarray(list(edge_ids), dtype=str)
     canonical_identifiers = (
         None if canonical_edge_ids is None else np.asarray(list(canonical_edge_ids), dtype=str)
     )
-    if tested.ndim == 1:
-        tested = tested[:, None]
-    if nuisance.ndim == 1:
-        nuisance = nuisance[:, None]
-    if y.ndim != 2 or len(y) != len(tested) or len(y) != len(nuisance):
-        raise ValueError("data and design matrices must have matching observation counts")
+    if y.ndim != 2 or len(y) != design.n_observations:
+        raise ValueError("data and design must have matching observation counts")
     if y.shape[1] != len(identifiers) or not np.isfinite(y).all():
         raise ValueError("data columns must match finite edge_ids")
-    if not np.any(np.all(np.isclose(nuisance, 1.0), axis=0)):
-        raise ValueError("nuisance_design must explicitly contain an intercept column")
-    reduced_beta = np.linalg.pinv(nuisance) @ y
-    fitted_reduced = nuisance @ reduced_beta
+
+    reduced_basis = null_space(c.reshape(1, -1))
+    reduced_design = x @ reduced_basis
+    reduced_beta = np.linalg.pinv(reduced_design) @ y
+    fitted_reduced = reduced_design @ reduced_beta
     residuals = y - fitted_reduced
-    full_design = np.column_stack([tested, nuisance])
-    tested_contrast = np.zeros(full_design.shape[1])
-    if contrast is None:
-        tested_contrast[0] = 1.0
-    else:
-        supplied = np.asarray(contrast, dtype=float).reshape(-1)
-        if len(supplied) == tested.shape[1]:
-            tested_contrast[: tested.shape[1]] = supplied
-        elif len(supplied) == full_design.shape[1]:
-            tested_contrast = supplied
-        else:
-            raise ValueError("contrast must match tested or full design columns")
     rng = np.random.default_rng(random_state)
     output = {name: np.empty(n_permutations) for name in edge_sets}
     for replicate in range(n_permutations):
         indices = _permutation_indices(len(y), rng, exchangeability_blocks)
         permuted = fitted_reduced + residuals[indices]
-        statistics = glm_statistic(permuted, full_design, tested_contrast)
+        statistics = glm_contrast_statistics(
+            permuted,
+            x,
+            c,
+            effect_size=contrast.effect_size,
+        ).effect_size
         scores = _score_sets(
             identifiers,
             statistics,
