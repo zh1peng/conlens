@@ -22,6 +22,40 @@ def _hash_payload(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _identity_token(value: Any) -> Any:
+    """Represent node labels without conflating values such as ``1`` and ``"1"``."""
+    if isinstance(value, tuple):
+        return {"type": "tuple", "items": [_identity_token(item) for item in value]}
+    if isinstance(value, np.generic):
+        value = value.item()
+    return {
+        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+        "value": repr(value),
+    }
+
+
+def _node_identity_hash(ranked: pd.DataFrame, metadata: Mapping[str, Any]) -> str:
+    node_order = metadata.get("node_order", ranked.attrs.get("node_order", []))
+    mapping = [
+        {
+            "edge_id": str(row.edge_id),
+            "node1": _identity_token(row.node1),
+            "node2": _identity_token(row.node2),
+        }
+        for row in ranked[["edge_id", "node1", "node2"]]
+        .sort_values("edge_id")
+        .itertuples(index=False)
+    ]
+    return _hash_payload(
+        {
+            "node_order": [_identity_token(node) for node in node_order],
+            "directed": bool(metadata.get("directed", False)),
+            "diagonal": bool(metadata.get("diagonal", False)),
+            "edge_endpoints": mapping,
+        }
+    )
+
+
 def rank_edges(edges: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Sort statistics descending with deterministic canonical-ID tie breaking."""
     if not {"edge_id", "statistic"}.issubset(edges.columns):
@@ -311,6 +345,7 @@ def _lens_stat_one(
         **prepared.metadata,
         "edge_universe_hash": _hash_payload(sorted(universe)),
         "edge_mapping_hash": _hash_payload(edge_mapping),
+        "node_identity_hash": _node_identity_hash(ranked, prepared.metadata),
         "edge_universe_size": len(universe),
         "set_definition_hash": _hash_payload(
             {name: sorted(members) for name, members in sorted(sets.items())}

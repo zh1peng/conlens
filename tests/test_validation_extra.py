@@ -7,6 +7,7 @@ import pytest
 
 from conlens import (
     Contrast,
+    compare_lens_results,
     compute_enrichment_score,
     compute_running_sum,
     lens_edge_permute,
@@ -133,3 +134,35 @@ def test_stability_option_validation(example_edges, options):
     result = lens_enrich(stat, null, min_size=1)
     with pytest.raises(ValueError):
         summarize_stability(result, [result], **options)
+
+
+def test_node_identity_and_exact_design_are_checked():
+    first = pd.DataFrame({
+        "edge_id": ["e1", "e2", "e3"],
+        "node1": ["A", "A", "B"],
+        "node2": ["B", "C", "C"],
+        "statistic": [2.0, 1.0, -1.0],
+    })
+    second = first.assign(node1=["W", "W", "X"], node2=["X", "Y", "Y"])
+    left = lens_stat(make_edge_statistics(first, positive_direction="higher"), {"s": ["e1"]})
+    right = lens_stat(make_edge_statistics(second, positive_direction="higher"), {"s": ["e1"]})
+    with pytest.raises(ValueError, match="node_identity_hash"):
+        lens_enrich(left, [right], min_size=1)
+    left_result = lens_enrich(left, [left], min_size=1)
+    right_result = lens_enrich(right, [right], min_size=1)
+    with pytest.raises(ValueError, match="node_identity_hash"):
+        compare_lens_results(left_result, right_result)
+
+    values = symmetric_connectomes(n=10)
+    design_one = make_design(matrix=pd.DataFrame({
+        "intercept": np.ones(10), "age": np.arange(10.0),
+    }))
+    design_two = make_design(matrix=pd.DataFrame({
+        "intercept": np.ones(10), "age": np.arange(10.0) ** 2,
+    }))
+    contrast = {"age": Contrast({"age": 1}, "partial_r", "positive")}
+    observed_edges = lens_glm(values, design=design_one, contrasts=contrast)["age"]
+    wrong_edges = lens_glm(values, design=design_two, contrasts=contrast)["age"]
+    sets = {"s": ["0--1"]}
+    with pytest.raises(ValueError, match="design_data_hash"):
+        lens_enrich(lens_stat(observed_edges, sets), [lens_stat(wrong_edges, sets)], min_size=1)

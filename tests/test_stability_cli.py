@@ -61,6 +61,10 @@ def test_observed_anchored_stability_formulas(example_edges, tmp_path: Path):
     wrong.metadata["family_name"] = "other"
     with pytest.raises(ValueError, match="family_name"):
         summarize_stability(observed, [wrong])
+    wrong_identity = copy.deepcopy(same)
+    wrong_identity.metadata["node_identity_hash"] = "different"
+    with pytest.raises(ValueError, match="node_identity_hash"):
+        summarize_stability(observed, iter([wrong_identity]))
 
 
 def test_full_pipeline_bootstrap_smoke():
@@ -101,6 +105,14 @@ def test_full_pipeline_bootstrap_smoke():
         result["g1_vs_control"].set_summary,
         parallel["g1_vs_control"].set_summary,
     )
+    blocked = lens_bootstrap(
+        values,
+        edge_sets,
+        n_jobs=1,
+        exchangeability_blocks=[(int(index % 3), "site") for index in range(n)],
+        **options,
+    )
+    assert blocked["g1_vs_control"].metadata["n_bootstraps"] == 2
 
 
 def test_cli_edge_workflow(example_edges, tmp_path: Path):

@@ -25,6 +25,7 @@ from conlens import (
     plot_enrichment,
     plot_enrichment_heatmap,
     plot_leading_adjacency,
+    plot_lens_heatmap,
     plot_node_participation,
     plot_null_distribution,
     plot_running_sum,
@@ -80,6 +81,7 @@ def test_visualizations_render(example_edges):
     assert plot_null_distribution(result, "A--A") is not None
     assert len(plot_enrichment(result, "A--A")) == 3
     assert plot_enrichment_heatmap(result) is not None
+    assert plot_lens_heatmap(result, annotations) is not None
     network = build_leading_network(result, "A--A")
     assert plot_circos(network, annotations) is not None
     assert plot_leading_adjacency(network) is not None
@@ -93,8 +95,12 @@ def test_leading_network_serialization_and_plot_errors(tmp_path: Path):
         pd.DataFrame({"node1": ["a"], "node2": ["b"], "statistic": [1.0]}),
     )
     assert network.to_networkx().number_of_edges() == 1
-    assert network.save(tmp_path / "network.json").exists()
-    assert network.save(tmp_path / "network.graphml").exists()
+    json_path = network.save(tmp_path / "network.json")
+    graphml_path = network.save(tmp_path / "network.graphml")
+    assert json_path.exists()
+    assert graphml_path.exists()
+    pd.testing.assert_frame_equal(LeadingNetwork.load(json_path).edges, network.edges)
+    assert LeadingNetwork.load(graphml_path).to_networkx().number_of_edges() == 1
     with pytest.raises(ValueError, match="missing network"):
         plot_circos(network, {"a": "A"})
     with pytest.raises(ValueError):
@@ -141,11 +147,69 @@ def test_leading_metadata_directed_and_stability_plot(example_edges):
     plt.close("all")
 
 
+def test_reference_style_plot_options(example_edges):
+    result = inferred_result(example_edges)
+    annotations = {0: "A", 1: "A", 2: "B", 3: "B"}
+    colors = {"A": "#1F77B4", "B": "#D62728"}
+    matrix = np.eye(4)
+    _, ax = plt.subplots()
+    assert plot_connectome_heatmap(
+        matrix,
+        annotations,
+        triangle="full",
+        significant_mask=np.eye(4, dtype=bool),
+        network_colors=colors,
+        show_colorbar=False,
+        show_network_labels=True,
+        vmax=1,
+        cmap="coolwarm",
+        ax=ax,
+    ) is ax
+    _, ax = plt.subplots()
+    assert plot_lens_heatmap(
+        result,
+        annotations,
+        node_order=[0, 1, 2, 3],
+        network_order=["A", "B"],
+        network_colors=colors,
+        edge_vmax=2,
+        enrichment_vmax=2,
+        show_colorbar=False,
+        show_network_labels=True,
+        ax=ax,
+    ) is ax
+    assert plot_enrichment_heatmap(
+        result, annotate=True, network_colors=colors, vmax=2
+    ) is not None
+    network = build_leading_network(result, "A--A")
+    assert plot_circos(
+        network,
+        annotations,
+        network_order=["A", "B"],
+        network_colors=colors,
+        show_labels=True,
+        show_nodes=True,
+    ) is not None
+    empty = LeadingNetwork(
+        pd.DataFrame({"node_id": []}),
+        pd.DataFrame(columns=["node1", "node2", "statistic"]),
+    )
+    assert plot_circos(empty, annotations) is not None
+    with pytest.raises(ValueError, match="triangle"):
+        plot_connectome_heatmap(matrix, annotations, triangle="upper")
+    with pytest.raises(ValueError, match="significant_mask"):
+        plot_connectome_heatmap(matrix, annotations, significant_mask=np.ones((2, 2)))
+    with pytest.raises(ValueError, match="vmax"):
+        plot_enrichment_heatmap(result, vmax=0)
+    plt.close("all")
+
+
 def test_serializable_edge_and_glm_results(example_edges, tmp_path: Path):
     edge = make_edge_statistics(example_edges, positive_direction="higher")
     edge_path = tmp_path / "edge.json"
     edge.save(edge_path)
     restored_edge = EdgeStatistics.load(edge_path)
+    assert edge.to_dict()["schema_version"] == 1
     pd.testing.assert_frame_equal(restored_edge.table, edge.table)
     result = inferred_result(example_edges)
     glm = GLMResult({"demo": result}, {"family_name": "demo"})

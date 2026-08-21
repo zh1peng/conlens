@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 from scipy.linalg import null_space
 
-from .data import matrix_to_edges, validate_connectome
+from .data import _object_vector, canonicalize_edges, validate_connectome
 from .design import Contrast, DesignMatrix
 from .results import EdgeStatistics
-from .stats import glm_contrast_statistics
+from .stats import _prepare_glm_design, glm_contrast_statistics
 
 
 def _edge_matrix(
@@ -25,22 +25,23 @@ def _edge_matrix(
     array = validate_connectome(connectomes, node_labels=node_labels, directed=directed)
     if array.ndim != 3:
         raise ValueError("connectomes must have shape (subjects, nodes, nodes)")
-    long_edges = matrix_to_edges(
-        array,
-        node_labels=node_labels,
-        directed=directed,
-        diagonal=diagonal,
-    )
-    template = long_edges[long_edges["subject"] == 0][
-        ["node1", "node2", "edge_id", "canonical_edge_id"]
-    ].reset_index(drop=True)
-    data = np.stack(
-        [
-            long_edges[long_edges["subject"] == subject]["statistic"].to_numpy(float)
-            for subject in range(len(array))
-        ]
-    )
     labels = list(range(array.shape[1])) if node_labels is None else list(node_labels)
+    n_nodes = array.shape[1]
+    if directed:
+        row, col = np.indices((n_nodes, n_nodes))
+        mask = np.ones((n_nodes, n_nodes), dtype=bool)
+        if not diagonal:
+            mask &= row != col
+        row, col = row[mask], col[mask]
+    else:
+        row, col = np.triu_indices(n_nodes, k=0 if diagonal else 1)
+    label_array = _object_vector(labels)
+    template = canonicalize_edges(
+        pd.DataFrame({"node1": label_array[row], "node2": label_array[col]}),
+        node_order=labels,
+        directed=directed,
+    )[["node1", "node2", "edge_id", "canonical_edge_id"]]
+    data = np.asarray(array[:, row, col], dtype=float)
     template.attrs["node_order"] = labels
     return data, template, labels
 
@@ -86,6 +87,7 @@ def _edge_result(
         table["residual_df"] = statistics.residual_df
         table["edge_p_value_two_sided"] = statistics.p_value_two_sided
         table["residual_sd"] = statistics.residual_sd
+        table["estimable"] = statistics.estimable
     table.attrs["node_order"] = node_order
     statistic_name = (
         "partial correlation"
@@ -110,6 +112,8 @@ def _edge_result(
         "node_order": node_order,
         "directed": directed,
         "diagonal": diagonal,
+        "design_data_hash": design.data_hash,
+        "n_nonestimable_edges": int((~statistics.estimable).sum()),
     }
     metadata.update(extra_metadata or {})
     return EdgeStatistics(table=table, metadata=metadata)
@@ -133,6 +137,7 @@ def lens_glm(
     )
     _validate_glm_inputs(data, design, contrasts)
     output: dict[str, EdgeStatistics] = {}
+    prepared_design = _prepare_glm_design(design.values)
     for name, contrast in contrasts.items():
         vector = contrast.resolve(design)
         statistics = glm_contrast_statistics(
@@ -140,6 +145,7 @@ def lens_glm(
             design.values,
             vector,
             effect_size=contrast.effect_size,
+            _prepared=prepared_design,
         )
         output[name] = _edge_result(
             template,
@@ -217,6 +223,7 @@ def lens_fl_permute(
     _validate_glm_inputs(data, design, contrasts)
     block_codes = _validate_blocks(exchangeability_blocks, len(data))
     x = design.values
+    prepared_design = _prepare_glm_design(x)
     prepared: dict[str, tuple[Contrast, np.ndarray, np.ndarray, np.ndarray]] = {}
     for name, contrast in contrasts.items():
         vector = contrast.resolve(design)
@@ -237,6 +244,7 @@ def lens_fl_permute(
                 x,
                 vector,
                 effect_size=contrast.effect_size,
+                _prepared=prepared_design,
             )
             output[name] = _edge_result(
                 template,
@@ -258,4 +266,3 @@ def lens_fl_permute(
                 },
             )
         yield output
-

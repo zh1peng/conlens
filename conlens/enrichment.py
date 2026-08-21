@@ -80,6 +80,7 @@ def _filter_sets(
 _COMPATIBILITY_FIELDS = (
     "edge_universe_hash",
     "edge_mapping_hash",
+    "node_identity_hash",
     "set_definition_hash",
     "positive_direction",
     "weight_exponent",
@@ -98,6 +99,12 @@ def _validate_null(observed: LensStatResult, null: LensStatResult, label: str) -
             raise ValueError(f"observed LENS statistics are missing required metadata {field!r}")
         if actual != expected:
             raise ValueError(f"{label} has incompatible {field}")
+    expected_design_hash = observed.metadata.get("design_data_hash")
+    if (
+        expected_design_hash is not None
+        and null.metadata.get("design_data_hash") != expected_design_hash
+    ):
+        raise ValueError(f"{label} has incompatible design_data_hash")
 
 
 def _apply_null(item: LensSetResult, null_values: np.ndarray) -> None:

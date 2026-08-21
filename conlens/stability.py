@@ -42,7 +42,8 @@ REPLICATE_SUMMARY_COLUMNS = [
 ]
 _COMPATIBILITY_FIELDS = (
     "family_name", "edge_universe_hash", "edge_mapping_hash", "set_definition_hash",
-    "analysis_signature", "positive_direction", "weight_exponent", "score_type",
+    "node_identity_hash", "analysis_signature", "positive_direction", "weight_exponent",
+    "score_type",
     "min_size", "max_size", "n_permutations", "permutation_scheme",
     "exchangeability_blocks_used", "n_tests_in_family",
 )
@@ -144,6 +145,196 @@ def _validate_compatible(
     return current
 
 
+class _StabilityAccumulator:
+    """Online accumulator that retains summaries, not full bootstrap results."""
+
+    def __init__(
+        self,
+        observed: LensResult,
+        *,
+        significance_alpha: float,
+        interval_level: float,
+        core_threshold: float,
+        min_same_direction: int,
+    ) -> None:
+        _validate_stability_options(
+            significance_alpha, interval_level, core_threshold, min_same_direction
+        )
+        self.observed = observed
+        self.observed_sets = _validate_complete(observed, "observed result")
+        self.alpha = significance_alpha
+        self.interval_level = interval_level
+        self.core_threshold = core_threshold
+        self.min_same_direction = min_same_direction
+        self.edge_lookup = observed.ranked_edges.set_index("edge_id", drop=False)
+        self.tracked = [
+            item.set_name for item in observed.sets
+            if item.status == "ok"
+            and item.q_value is not None
+            and item.q_value <= significance_alpha
+        ]
+        self.state: dict[str, dict[str, Any]] = {}
+        for name in self.tracked:
+            item = self.observed_sets[name]
+            if item.direction not in {"positive", "negative"}:
+                raise ValueError(f"observed set {name!r} has no signed direction")
+            members = sorted(set(item.edge_set_ids))
+            self.state[name] = {
+                "members": members,
+                "member_index": {edge_id: index for index, edge_id in enumerate(members)},
+                "observed_leading": set(item.leading_edge_ids),
+                "inclusion": np.zeros(len(members), dtype=int),
+                "detected": 0,
+                "same": 0,
+                "different": 0,
+                "sizes": [],
+                "jaccards": [],
+            }
+        self.replicate_rows: list[dict[str, Any]] = []
+        self.total = 0
+
+    def add(self, result: LensResult) -> None:
+        by_name = _validate_compatible(
+            self.observed, self.observed_sets, result, self.total
+        )
+        for name in self.tracked:
+            observed_item = self.observed_sets[name]
+            item = by_name[name]
+            state = self.state[name]
+            detected = bool(item.q_value is not None and item.q_value <= self.alpha)
+            same = bool(detected and item.direction == observed_item.direction)
+            if detected:
+                state["detected"] += 1
+                state["same" if same else "different"] += 1
+            score = np.nan
+            if same:
+                leading = set(item.leading_edge_ids)
+                unknown = leading - set(state["member_index"])
+                if unknown:
+                    raise ValueError(f"bootstrap leading edges are not members of {name!r}")
+                for edge_id in leading:
+                    state["inclusion"][state["member_index"][edge_id]] += 1
+                state["sizes"].append(len(leading))
+                score = _jaccard(state["observed_leading"], leading)
+                state["jaccards"].append(score)
+            self.replicate_rows.append({
+                "replicate": self.total, "set_name": name,
+                "detected": detected, "same_direction": same,
+                "direction": item.direction, "es": item.ES, "nes": item.NES,
+                "p_value": item.p_value, "q_value": item.q_value,
+                "leading_edge_size": item.leading_edge_size,
+                "jaccard_with_observed": score,
+            })
+        self.total += 1
+
+    def finalize(self) -> LensStabilityResult:
+        if self.total == 0:
+            raise ValueError("bootstrap_results must contain at least one result")
+        set_rows: list[dict[str, Any]] = []
+        edge_rows: list[dict[str, Any]] = []
+        tail = (1 - self.interval_level) / 2
+        for name in self.tracked:
+            observed_item = self.observed_sets[name]
+            state = self.state[name]
+            detected, same, different = state["detected"], state["same"], state["different"]
+            inclusion = state["inclusion"]
+            stability = same / self.total
+            lower, upper = _jeffreys_interval(same, self.total, self.interval_level)
+            full = inclusion / self.total
+            full_lower, full_upper = _jeffreys_interval(
+                inclusion, self.total, self.interval_level
+            )
+            if same:
+                conditional = inclusion / same
+                conditional_lower, conditional_upper = _jeffreys_interval(
+                    inclusion, same, self.interval_level
+                )
+            else:
+                conditional = conditional_lower = conditional_upper = np.full(
+                    len(state["members"]), np.nan
+                )
+            localization_supported = same >= self.min_same_direction
+            set_supported = bool(lower > SET_GATE_THRESHOLD)
+            reportable = localization_supported and set_supported
+            full_core = full_lower > self.core_threshold
+            conditional_core = (
+                conditional_lower > self.core_threshold
+                if reportable else np.zeros(len(state["members"]), dtype=bool)
+            )
+            status = (
+                "insufficient same-direction detections" if not localization_supported
+                else "set stability below gate" if not set_supported else "reportable"
+            )
+            sizes = state["sizes"]
+            if sizes:
+                size_lower, size_upper = np.quantile(sizes, [tail, 1 - tail])
+                size_median = float(np.median(sizes))
+            else:
+                size_lower = size_upper = size_median = np.nan
+            set_rows.append({
+                "set_name": name, "observed_direction": observed_item.direction,
+                "observed_es": observed_item.ES, "observed_nes": observed_item.NES,
+                "observed_p_value": observed_item.p_value,
+                "observed_q_value": observed_item.q_value,
+                "detection_count": detected, "same_direction_count": same,
+                "different_direction_count": different,
+                "detection_rate": detected / self.total,
+                "direction_consistency": same / detected if detected else np.nan,
+                "set_stability": stability, "set_stability_lower": float(lower),
+                "set_stability_upper": float(upper),
+                "set_reproducibility_supported": set_supported,
+                "observed_leading_edge_size": observed_item.leading_edge_size,
+                "bootstrap_leading_edge_size_median": size_median,
+                "bootstrap_leading_edge_size_lower": float(size_lower),
+                "bootstrap_leading_edge_size_upper": float(size_upper),
+                "median_jaccard_with_observed": (
+                    float(np.median(state["jaccards"])) if state["jaccards"] else np.nan
+                ),
+                "conditional_localization_supported": localization_supported,
+                "conditional_core_reportable": reportable,
+                "conditional_status": status,
+                "full_pipeline_core_size": int(full_core.sum()),
+                "conditional_core_size": int(conditional_core.sum()),
+            })
+            for index, edge_id in enumerate(state["members"]):
+                edge = self.edge_lookup.loc[edge_id]
+                edge_rows.append({
+                    "set_name": name, "edge_id": edge_id,
+                    "node1": edge["node1"], "node2": edge["node2"],
+                    "in_observed_leading_edge": edge_id in state["observed_leading"],
+                    "same_direction_inclusion_count": int(inclusion[index]),
+                    "conditional_stability": float(conditional[index]),
+                    "conditional_stability_lower": float(conditional_lower[index]),
+                    "conditional_stability_upper": float(conditional_upper[index]),
+                    "full_pipeline_stability": float(full[index]),
+                    "full_pipeline_stability_lower": float(full_lower[index]),
+                    "full_pipeline_stability_upper": float(full_upper[index]),
+                    "conditional_core": bool(conditional_core[index]),
+                    "full_pipeline_core": bool(full_core[index]),
+                })
+        metadata = {
+            **{field: self.observed.metadata.get(field) for field in _COMPATIBILITY_FIELDS},
+            "n_bootstraps": self.total,
+            "significance_alpha": self.alpha,
+            "interval_method": "Jeffreys bootstrap-frequency Monte Carlo interval",
+            "interval_level": self.interval_level,
+            "core_threshold": self.core_threshold,
+            "conditional_set_gate_threshold": SET_GATE_THRESHOLD,
+            "min_same_direction": self.min_same_direction,
+            "observed_significant_sets": self.tracked,
+            "interpretation": (
+                "Empirical sampling stability; not an edge-truth probability or a "
+                "future-study replication probability."
+            ),
+        }
+        return LensStabilityResult(
+            pd.DataFrame(set_rows, columns=SET_SUMMARY_COLUMNS),
+            pd.DataFrame(edge_rows, columns=EDGE_SUMMARY_COLUMNS),
+            pd.DataFrame(self.replicate_rows, columns=REPLICATE_SUMMARY_COLUMNS),
+            metadata,
+        )
+
+
 def summarize_stability(
     observed: LensResult,
     bootstrap_results: Iterable[LensResult],
@@ -153,177 +344,34 @@ def summarize_stability(
     core_threshold: float = 0.50,
     min_same_direction: int = 30,
 ) -> LensStabilityResult:
-    """Summarize observed-anchored, full-pipeline bootstrap stability."""
-    _validate_stability_options(
-        significance_alpha, interval_level, core_threshold, min_same_direction
+    """Summarize an iterable of full-pipeline replicates in one pass."""
+    accumulator = _StabilityAccumulator(
+        observed,
+        significance_alpha=significance_alpha,
+        interval_level=interval_level,
+        core_threshold=core_threshold,
+        min_same_direction=min_same_direction,
     )
-    observed_sets = _validate_complete(observed, "observed result")
-    replicates = list(bootstrap_results)
-    if not replicates:
-        raise ValueError("bootstrap_results must contain at least one result")
-    replicate_sets = [
-        _validate_compatible(observed, observed_sets, result, index)
-        for index, result in enumerate(replicates)
-    ]
-    edge_lookup = observed.ranked_edges.set_index("edge_id", drop=False)
-    tracked = [
-        item.set_name for item in observed.sets
-        if item.status == "ok"
-        and item.q_value is not None
-        and item.q_value <= significance_alpha
-    ]
-    set_rows: list[dict[str, Any]] = []
-    edge_rows: list[dict[str, Any]] = []
-    replicate_rows: list[dict[str, Any]] = []
-    total = len(replicates)
-    quantile_tail = (1 - interval_level) / 2
-
-    for set_name in tracked:
-        observed_set = observed_sets[set_name]
-        if observed_set.direction not in {"positive", "negative"}:
-            raise ValueError(f"observed set {set_name!r} has no signed direction")
-        observed_leading = set(observed_set.leading_edge_ids)
-        member_ids = sorted(set(observed_set.edge_set_ids))
-        member_index = {edge_id: index for index, edge_id in enumerate(member_ids)}
-        inclusion = np.zeros(len(member_ids), dtype=int)
-        detected_count = same_count = different_count = 0
-        sizes: list[int] = []
-        jaccards: list[float] = []
-        for replicate_index, by_name in enumerate(replicate_sets):
-            item = by_name[set_name]
-            detected = bool(item.q_value is not None and item.q_value <= significance_alpha)
-            same = bool(detected and item.direction == observed_set.direction)
-            if detected:
-                detected_count += 1
-                if same:
-                    same_count += 1
-                else:
-                    different_count += 1
-            score = np.nan
-            if same:
-                leading = set(item.leading_edge_ids)
-                unknown = leading - set(member_index)
-                if unknown:
-                    raise ValueError(f"bootstrap leading edges are not members of {set_name!r}")
-                for edge_id in leading:
-                    inclusion[member_index[edge_id]] += 1
-                sizes.append(len(leading))
-                score = _jaccard(observed_leading, leading)
-                jaccards.append(score)
-            replicate_rows.append({
-                "replicate": replicate_index, "set_name": set_name,
-                "detected": detected, "same_direction": same,
-                "direction": item.direction, "es": item.ES, "nes": item.NES,
-                "p_value": item.p_value, "q_value": item.q_value,
-                "leading_edge_size": item.leading_edge_size,
-                "jaccard_with_observed": score,
-            })
-
-        set_stability = same_count / total
-        set_lower, set_upper = _jeffreys_interval(same_count, total, interval_level)
-        full = inclusion / total
-        full_lower, full_upper = _jeffreys_interval(inclusion, total, interval_level)
-        if same_count:
-            conditional = inclusion / same_count
-            conditional_lower, conditional_upper = _jeffreys_interval(
-                inclusion, same_count, interval_level
-            )
-        else:
-            conditional = conditional_lower = conditional_upper = np.full(
-                len(member_ids), np.nan
-            )
-        conditional_supported = same_count >= min_same_direction
-        set_supported = bool(set_lower > SET_GATE_THRESHOLD)
-        conditional_reportable = conditional_supported and set_supported
-        full_core = full_lower > core_threshold
-        conditional_core = (
-            conditional_lower > core_threshold
-            if conditional_reportable
-            else np.zeros(len(member_ids), dtype=bool)
-        )
-        status = (
-            "insufficient same-direction detections" if not conditional_supported
-            else "set stability below gate" if not set_supported
-            else "reportable"
-        )
-        if sizes:
-            size_lower, size_upper = np.quantile(
-                sizes, [quantile_tail, 1 - quantile_tail]
-            )
-            size_median = float(np.median(sizes))
-        else:
-            size_lower = size_upper = size_median = np.nan
-        set_rows.append({
-            "set_name": set_name,
-            "observed_direction": observed_set.direction,
-            "observed_es": observed_set.ES,
-            "observed_nes": observed_set.NES,
-            "observed_p_value": observed_set.p_value,
-            "observed_q_value": observed_set.q_value,
-            "detection_count": detected_count,
-            "same_direction_count": same_count,
-            "different_direction_count": different_count,
-            "detection_rate": detected_count / total,
-            "direction_consistency": same_count / detected_count if detected_count else np.nan,
-            "set_stability": set_stability,
-            "set_stability_lower": float(set_lower),
-            "set_stability_upper": float(set_upper),
-            "set_reproducibility_supported": set_supported,
-            "observed_leading_edge_size": observed_set.leading_edge_size,
-            "bootstrap_leading_edge_size_median": size_median,
-            "bootstrap_leading_edge_size_lower": float(size_lower),
-            "bootstrap_leading_edge_size_upper": float(size_upper),
-            "median_jaccard_with_observed": float(np.median(jaccards)) if jaccards else np.nan,
-            "conditional_localization_supported": conditional_supported,
-            "conditional_core_reportable": conditional_reportable,
-            "conditional_status": status,
-            "full_pipeline_core_size": int(full_core.sum()),
-            "conditional_core_size": int(conditional_core.sum()),
-        })
-        for index, edge_id in enumerate(member_ids):
-            edge = edge_lookup.loc[edge_id]
-            edge_rows.append({
-                "set_name": set_name, "edge_id": edge_id,
-                "node1": edge["node1"], "node2": edge["node2"],
-                "in_observed_leading_edge": edge_id in observed_leading,
-                "same_direction_inclusion_count": int(inclusion[index]),
-                "conditional_stability": float(conditional[index]),
-                "conditional_stability_lower": float(conditional_lower[index]),
-                "conditional_stability_upper": float(conditional_upper[index]),
-                "full_pipeline_stability": float(full[index]),
-                "full_pipeline_stability_lower": float(full_lower[index]),
-                "full_pipeline_stability_upper": float(full_upper[index]),
-                "conditional_core": bool(conditional_core[index]),
-                "full_pipeline_core": bool(full_core[index]),
-            })
-
-    metadata = {
-        **{field: observed.metadata.get(field) for field in _COMPATIBILITY_FIELDS},
-        "n_bootstraps": total,
-        "significance_alpha": significance_alpha,
-        "interval_method": "Jeffreys bootstrap-frequency Monte Carlo interval",
-        "interval_level": interval_level,
-        "core_threshold": core_threshold,
-        "conditional_set_gate_threshold": SET_GATE_THRESHOLD,
-        "min_same_direction": min_same_direction,
-        "observed_significant_sets": tracked,
-        "interpretation": (
-            "Empirical sampling stability; not an edge-truth probability or a "
-            "future-study replication probability."
-        ),
-    }
-    return LensStabilityResult(
-        pd.DataFrame(set_rows, columns=SET_SUMMARY_COLUMNS),
-        pd.DataFrame(edge_rows, columns=EDGE_SUMMARY_COLUMNS),
-        pd.DataFrame(replicate_rows, columns=REPLICATE_SUMMARY_COLUMNS),
-        metadata,
-    )
+    for result in bootstrap_results:
+        accumulator.add(result)
+    return accumulator.finalize()
 
 
 def _contains_missing(value: Any) -> bool:
     if isinstance(value, (list, tuple)):
         return any(_contains_missing(item) for item in value)
     return bool(np.asarray(pd.isna(value), dtype=bool).any())
+
+
+def _object_vector(values: Iterable[Any], *, label: str, expected: int) -> np.ndarray:
+    items = list(values)
+    if len(items) != expected:
+        raise ValueError(f"{label} must contain one value per subject")
+    if any(_contains_missing(value) for value in items):
+        raise ValueError(f"{label} cannot contain missing values")
+    output = np.empty(len(items), dtype=object)
+    output[:] = items
+    return output
 
 
 def _bootstrap_draws(
@@ -431,12 +479,11 @@ def lens_bootstrap(
         raise ValueError("connectomes must have shape (subjects, nodes, nodes)")
     if design.n_observations != len(values):
         raise ValueError("design must contain one row per subject")
-    blocks = (
-        None if exchangeability_blocks is None
-        else np.asarray(list(exchangeability_blocks), dtype=object)
+    blocks = None if exchangeability_blocks is None else _object_vector(
+        exchangeability_blocks,
+        label="exchangeability_blocks",
+        expected=len(values),
     )
-    if blocks is not None and len(blocks) != len(values):
-        raise ValueError("exchangeability_blocks must contain one value per subject")
     seed_sequence = np.random.SeedSequence(random_state)
     draw_seed, observed_seed, bootstrap_seed = seed_sequence.spawn(3)
     draws = _bootstrap_draws(
@@ -470,23 +517,26 @@ def lens_bootstrap(
             raise RuntimeError(f"bootstrap replicate {index} failed: {exc}") from exc
 
     first = fit_one(0)
-    for name in observed.contrast_names:
-        observed_sets = _validate_complete(observed[name], "observed")
-        _validate_compatible(observed[name], observed_sets, first[name], 0)
-    if n_bootstraps == 1:
-        replicates = [first]
-    elif n_jobs == 1:
-        replicates = [first, *(fit_one(index) for index in range(1, n_bootstraps))]
-    else:
-        remaining = Parallel(n_jobs=n_jobs)(
-            delayed(fit_one)(index) for index in range(1, n_bootstraps)
-        )
-        replicates = [first, *remaining]
-    return {
-        name: summarize_stability(
-            observed[name], [result[name] for result in replicates],
+    accumulators = {
+        name: _StabilityAccumulator(
+            observed[name],
             significance_alpha=significance_alpha, interval_level=interval_level,
             core_threshold=core_threshold, min_same_direction=min_same_direction,
         )
         for name in observed.contrast_names
     }
+    for name, accumulator in accumulators.items():
+        accumulator.add(first[name])
+    if n_bootstraps > 1:
+        if n_jobs == 1:
+            remaining: Iterable[GLMResult] = (
+                fit_one(index) for index in range(1, n_bootstraps)
+            )
+        else:
+            remaining = Parallel(n_jobs=n_jobs, return_as="generator")(
+                delayed(fit_one)(index) for index in range(1, n_bootstraps)
+            )
+        for result in remaining:
+            for name, accumulator in accumulators.items():
+                accumulator.add(result[name])
+    return {name: accumulator.finalize() for name, accumulator in accumulators.items()}

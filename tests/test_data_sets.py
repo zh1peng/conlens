@@ -33,6 +33,11 @@ def test_directed_and_subject_matrix_conversion():
     assert long.shape == (4, 6)
     assert set(long["subject"]) == {0, 1}
     assert set(long["edge_id"]) == {"0->1", "1->0"}
+    named = matrix_to_edges(
+        np.stack([matrix, matrix * 2]), ["a", "b"], directed=True,
+        statistic_name="connectivity",
+    )
+    assert named["statistic"].equals(named["connectivity"])
 
 
 def test_canonicalization_uses_node_order_not_lexical():
@@ -73,6 +78,8 @@ def test_mixed_type_node_labels_are_not_coerced():
     edges = matrix_to_edges(matrix, [1, "two"])
     assert edges.loc[0, "node1"] == 1
     assert edges.loc[0, "node2"] == "two"
+    tuple_edges = matrix_to_edges(matrix, [("atlas", 1), ("atlas", 2)])
+    assert tuple_edges.loc[0, "node1"] == ("atlas", 1)
 
 
 @pytest.mark.parametrize(

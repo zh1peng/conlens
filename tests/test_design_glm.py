@@ -28,6 +28,12 @@ def test_design_semantics_centering_interactions_and_raw_mode():
     raw = make_design(matrix=pd.DataFrame({"constant": np.ones(6), "age": age}))
     assert raw.frame["age"].tolist() == age.tolist()
     assert raw.metadata()["intercept_added"] is False
+    assert raw.metadata()["design_data_hash"] != make_design(
+        matrix=pd.DataFrame({"constant": np.ones(6), "age": age**2})
+    ).metadata()["design_data_hash"]
+    assert raw.signature() == make_design(
+        matrix=pd.DataFrame({"constant": np.ones(6), "age": age**2})
+    ).signature()
     with pytest.raises(ValueError, match="exactly one group"):
         make_design(groups={"a": [1, 0, 0, 0], "b": [0, 1, 0, 0]})
     with pytest.raises(ValueError, match="full column rank"):
@@ -104,3 +110,18 @@ def test_block_validation():
             values, design=design, contrasts=contrasts, n_permutations=1,
             exchangeability_blocks=[("site", i) if i else ("site", None) for i in range(10)],
         ))
+
+
+def test_zero_variance_edge_is_reported_as_nonestimable():
+    values = connectomes(n=12, nodes=4)
+    values[:, 0, 1] = 2.0
+    values[:, 1, 0] = 2.0
+    design = make_design(continuous={"age": np.arange(12.0)})
+    contrast = {"age": Contrast({"age": 1}, "partial_r", "positive")}
+    result = lens_glm(values, design=design, contrasts=contrast)["age"]
+    edge = result.table[result.table["canonical_edge_id"] == "0--1"].iloc[0]
+    assert not edge.estimable
+    assert edge.statistic == 0
+    assert edge.t_statistic == 0
+    assert edge.edge_p_value_two_sided == 1
+    assert result.metadata["n_nonestimable_edges"] == 1

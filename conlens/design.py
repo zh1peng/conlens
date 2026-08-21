@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -85,7 +86,16 @@ class DesignMatrix:
             "condition_number": self.condition_number,
             "n_observations": self.n_observations,
             "n_columns": self.n_columns,
+            "design_data_hash": self.data_hash,
         }
+
+    @property
+    def data_hash(self) -> str:
+        """Hash the exact columns, row order, and numeric design values."""
+        digest = hashlib.sha256()
+        digest.update("\0".join(self.columns).encode("utf-8"))
+        digest.update(np.ascontiguousarray(self.values, dtype="<f8").tobytes())
+        return digest.hexdigest()
 
     def signature(self) -> dict[str, Any]:
         """Return the resampling-stable specification of the design."""
@@ -93,6 +103,7 @@ class DesignMatrix:
         metadata.pop("condition_number")
         metadata.pop("n_observations")
         metadata.pop("n_columns")
+        metadata.pop("design_data_hash")
         return metadata
 
 

@@ -8,12 +8,25 @@ import pandas as pd
 
 from .results import LensResult
 
+_IDENTITY_FIELDS = ("edge_universe_hash", "edge_mapping_hash", "node_identity_hash")
+
+
+def _validate_comparable(first: LensResult, second: LensResult) -> None:
+    for field in _IDENTITY_FIELDS:
+        left = first.metadata.get(field)
+        right = second.metadata.get(field)
+        if left is None or right is None:
+            raise ValueError(f"both results must contain {field!r} metadata")
+        if left != right:
+            raise ValueError(f"results have incompatible {field}")
+
 
 def compare_leading_edges(
     first: LensResult,
     second: LensResult,
     set_name: str,
 ) -> dict[str, Any]:
+    _validate_comparable(first, second)
     left = set(first.get(set_name).leading_edge_ids)
     right = set(second.get(set_name).leading_edge_ids)
     union = left | right
@@ -29,6 +42,7 @@ def compare_leading_edges(
 
 
 def compare_lens_results(first: LensResult, second: LensResult) -> pd.DataFrame:
+    _validate_comparable(first, second)
     common = sorted(
         {item.set_name for item in first.sets} & {item.set_name for item in second.sets}
     )

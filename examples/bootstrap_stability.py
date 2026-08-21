@@ -1,4 +1,4 @@
-"""Small full-pipeline bootstrap example."""
+"""Small full-pipeline stability example with an injected group effect."""
 
 import numpy as np
 
@@ -11,6 +11,8 @@ raw = rng.normal(size=(n_subjects, n_nodes, n_nodes))
 connectomes = (raw + raw.transpose(0, 2, 1)) / 2
 for matrix in connectomes:
     np.fill_diagonal(matrix, 0)
+connectomes[group == 1, 0, 1] += 5.0
+connectomes[group == 1, 1, 0] = connectomes[group == 1, 0, 1]
 design = make_design(groups={"control": group == 0, "case": group == 1})
 contrasts = {
     "case_vs_control": Contrast(
@@ -28,10 +30,12 @@ stability = lens_bootstrap(
     design=design,
     contrasts=contrasts,
     n_bootstraps=3,
-    n_permutations=9,
+    n_permutations=99,
     strata=group,
     random_state=42,
     min_size=2,
     min_same_direction=1,
 )
-print(stability["case_vs_control"].set_summary)
+summary = stability["case_vs_control"].set_summary
+assert not summary.empty
+print(summary)

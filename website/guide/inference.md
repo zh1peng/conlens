@@ -27,6 +27,10 @@ null_stats = (lens_stat(item, edge_sets) for item in null_edges)
 `exchangeability_blocks` 约束内层 permutation；它不是 bootstrap 的 `strata`，也不能替代
 cluster bootstrap。
 
+若个别边没有残差方差，ConLens 不会因此中止整个 GLM。该边继续留在 edge universe，effect
+和 t 记为 0、双侧 P 记为 1，并在 observed audit table 中标记 `estimable=False`。Observed 与
+每个 null replicate 因而始终使用同一组边。
+
 ## On the fly，而不是保存 edge × permutation
 
 `lens_fl_permute` 和 `lens_edge_permute` 都返回迭代器。推荐直接把它们接到 `lens_stat`，然后交给

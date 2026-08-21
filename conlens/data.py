@@ -11,6 +11,12 @@ import pandas as pd
 REQUIRED_EDGE_COLUMNS = ("node1", "node2", "statistic")
 
 
+def _object_vector(values: Sequence[Any]) -> np.ndarray:
+    output = np.empty(len(values), dtype=object)
+    output[:] = list(values)
+    return output
+
+
 def _validate_node_order(node_order: Sequence[Any]) -> list[Any]:
     nodes = list(node_order)
     if len(nodes) != len(set(nodes)):
@@ -158,7 +164,7 @@ def matrix_to_edges(
     else:
         offset = 0 if diagonal else 1
         row, col = np.triu_indices(n_nodes, k=offset)
-    label_array = np.asarray(labels, dtype=object)
+    label_array = _object_vector(labels)
     base = pd.DataFrame({"node1": label_array[row], "node2": label_array[col]})
     base = canonicalize_edges(base, node_order=labels, directed=directed)
     if array.ndim == 2:
@@ -171,6 +177,8 @@ def matrix_to_edges(
         frame = base.copy()
         frame.insert(0, "subject", subject)
         frame[statistic_name] = subject_matrix[row, col]
+        if statistic_name != "statistic":
+            frame["statistic"] = frame[statistic_name]
         chunks.append(frame)
     output = pd.concat(chunks, ignore_index=True)
     output.attrs.update(base.attrs)

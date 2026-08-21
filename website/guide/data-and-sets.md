@@ -15,6 +15,9 @@ edges = matrix_to_edges(connectomes.mean(axis=0), node_labels)
 若自定义 `edge_id`，ConLens 会保留它，同时记录 `edge_id → canonical_edge_id` 映射；这能防止
 bootstrap 或 null 结果把同名边错误地映射到不同端点。
 
+ConLens 还会把 node labels/order、directed/diagonal 设定和实际端点写入 identity hash。
+null inference、结果比较和 stability 汇总都会核对它，而不是只比较看起来相同的 `0--1`。
+
 ## Network-pair sets
 
 ```python

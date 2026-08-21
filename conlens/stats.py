@@ -21,6 +21,29 @@ class GLMEdgeStatistics:
     residual_df: int
     p_value_two_sided: np.ndarray
     residual_sd: np.ndarray
+    estimable: np.ndarray
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedGLMDesign:
+    pseudoinverse: np.ndarray
+    xtx_inverse: np.ndarray
+    residual_df: int
+
+
+def _prepare_glm_design(design: np.ndarray) -> _PreparedGLMDesign:
+    x = np.asarray(design, dtype=float)
+    if x.ndim != 2 or not np.isfinite(x).all():
+        raise ValueError("design must be a finite two-dimensional array")
+    rank = int(np.linalg.matrix_rank(x))
+    residual_df = len(x) - rank
+    if rank < x.shape[1] or residual_df <= 0:
+        raise ValueError("design matrix must have full column rank and positive residual df")
+    return _PreparedGLMDesign(
+        pseudoinverse=np.linalg.pinv(x),
+        xtx_inverse=np.linalg.pinv(x.T @ x, hermitian=True),
+        residual_df=residual_df,
+    )
 
 
 def glm_contrast_statistics(
@@ -29,6 +52,7 @@ def glm_contrast_statistics(
     contrast: np.ndarray,
     *,
     effect_size: EffectSize,
+    _prepared: _PreparedGLMDesign | None = None,
 ) -> GLMEdgeStatistics:
     """Fit one full OLS model and calculate a signed standardized effect.
 
@@ -48,29 +72,34 @@ def glm_contrast_statistics(
     if effect_size not in {"partial_r", "hedges_g"}:
         raise ValueError("effect_size must be 'partial_r' or 'hedges_g'")
 
-    rank = int(np.linalg.matrix_rank(x))
-    residual_df = len(x) - rank
-    if rank < x.shape[1] or residual_df <= 0:
-        raise ValueError("design matrix must have full column rank and positive residual df")
-
-    beta, _, _, _ = np.linalg.lstsq(x, y, rcond=None)
+    prepared = _prepare_glm_design(x) if _prepared is None else _prepared
+    residual_df = prepared.residual_df
+    beta = prepared.pseudoinverse @ y
     residual = y - x @ beta
     residual_variance = np.sum(residual**2, axis=0) / residual_df
     residual_sd = np.sqrt(residual_variance)
-    contrast_scale = float(c @ np.linalg.pinv(x.T @ x, hermitian=True) @ c)
+    contrast_scale = float(c @ prepared.xtx_inverse @ c)
     estimates = c @ beta
     standard_error = residual_sd * np.sqrt(contrast_scale)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        t_statistic = estimates / standard_error
-    if not np.isfinite(t_statistic).all():
-        raise ValueError("GLM produced non-finite statistics; check zero-variance edges")
+    estimable = np.isfinite(standard_error) & (standard_error > np.finfo(float).eps)
+    t_statistic = np.divide(
+        estimates,
+        standard_error,
+        out=np.zeros_like(estimates, dtype=float),
+        where=estimable,
+    )
 
     p_value = 2 * scipy_stats.t.sf(np.abs(t_statistic), residual_df)
     if effect_size == "partial_r":
         effect = t_statistic / np.sqrt(t_statistic**2 + residual_df)
     else:
         correction = 1 - 3 / (4 * residual_df - 1)
-        effect = correction * estimates / residual_sd
+        effect = np.divide(
+            correction * estimates,
+            residual_sd,
+            out=np.zeros_like(estimates, dtype=float),
+            where=estimable,
+        )
 
     return GLMEdgeStatistics(
         effect_size=np.asarray(effect, float),
@@ -80,4 +109,5 @@ def glm_contrast_statistics(
         residual_df=residual_df,
         p_value_two_sided=np.asarray(p_value, float),
         residual_sd=np.asarray(residual_sd, float),
+        estimable=np.asarray(estimable, bool),
     )

@@ -35,6 +35,9 @@ age_stability.replicate_summary
 `strata` 控制 outer subject bootstrap，例如让各诊断组样本量保持不变；
 `exchangeability_blocks` 控制每个 replicate 内的 FL permutation。两者不是同一个概念。
 
+Replicate 会边生成边汇总。ConLens 只保留 set/edge 计数和用于报告的逐 replicate set-level
+记录，不会同时保存 1,000 份带完整 ranked edges 与 null scores 的结果。
+
 ## 三个不同的频率
 
 设总 bootstrap 次数为 $B$，某 observed-significant set 在 $M$ 次 replicate 中再次 BH 显著且方向
