@@ -41,7 +41,7 @@ export default defineConfig({
             text: '从这里开始',
             items: [
               { text: '软件包概览', link: '/' },
-              { text: '认识 ConLens', link: '/guide/introduction' },
+              { text: 'LENS 的输入', link: '/guide/introduction' },
               { text: '安装', link: '/guide/installation' },
               { text: '五分钟快速开始', link: '/guide/quick-start' },
             ],
@@ -50,7 +50,7 @@ export default defineConfig({
             text: '概念、推断与解释',
             items: [
               { text: '数据与 edge sets', link: '/guide/data-and-sets' },
-              { text: '推断与零模型', link: '/guide/inference' },
+              { text: 'Permutation 与零模型', link: '/guide/inference' },
               { text: '结果与 leading edge', link: '/guide/results' },
               { text: '如何解释结果', link: '/guide/interpretation' },
             ],
@@ -58,9 +58,9 @@ export default defineConfig({
           {
             text: '分析教程',
             items: [
-              { text: '边统计量输入', link: '/tutorials/edge-statistics' },
-              { text: 'Design matrix 与 contrasts', link: '/tutorials/design-and-contrasts' },
+              { text: '从个体数据到 LENS', link: '/tutorials/design-and-contrasts' },
               { text: 'Bootstrap 稳定性', link: '/tutorials/stability' },
+              { text: '只有 edge statistics 时', link: '/tutorials/edge-statistics' },
             ],
           },
           {

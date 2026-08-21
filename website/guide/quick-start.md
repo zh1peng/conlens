@@ -1,86 +1,101 @@
 ---
 title: 快速开始
-description: 使用边统计量完成一次最小 ConLens 分析
+description: 用个体 connectome、age 和 covariates 跑通一次 subject-level LENS 分析
 ---
 
 # 五分钟快速开始
 
-下面从一张边统计量表出发，完成验证、集合定义、富集推断和结果查看。
+这个例子检验 age 与连接强度的关系。它假设磁盘上已有个体 connectomes、受试者表和
+节点所属网络。
 
-## 1. 准备完整边表
+## 1. 读入数据并定义 edge sets
 
 ```python
+import numpy as np
 import pandas as pd
 
-edges = pd.DataFrame({
-    "node1": ["A", "A", "A", "B", "B", "C"],
-    "node2": ["B", "C", "D", "C", "D", "D"],
-    "statistic": [3.0, 2.0, 1.0, -0.5, -1.5, -2.5],
-})
-```
+from conlens import (
+    Contrast,
+    LensAnalysis,
+    make_design,
+    make_network_pair_sets,
+    matrix_to_edges,
+)
 
-`statistic` 必须是有限的有符号数值。排序始终使用原始符号，而不是绝对值。
+connectomes = np.load("connectomes.npy")          # subjects × nodes × nodes
+participants = pd.read_csv("participants.tsv", sep="\t")
+labels = np.load("node-labels.npy", allow_pickle=True).tolist()
 
-## 2. 验证并定义 edge set
+node_table = pd.read_csv("node-networks.tsv", sep="\t")
+node_networks = dict(zip(node_table["node"], node_table["network"], strict=True))
 
-```python
-from conlens import validate_edge_table
+template = matrix_to_edges(connectomes[0], node_labels=labels)
+edge_sets = make_network_pair_sets(template, node_networks)
 
-validated = validate_edge_table(edges)
-edge_sets = {
-    "example": set(validated.loc[[0, 1, 4], "edge_id"]),
-}
-```
-
-先验证一次可以获得稳定的 canonical `edge_id`。不要从端点字符串自行猜测 ID。
-
-## 3. 运行富集分析
-
-```python
-from conlens import lens_enrich
-
-result = lens_enrich(
-    edges,
+analysis = LensAnalysis.from_subject_connectomes(
+    connectomes,
     edge_sets,
-    min_size=1,
-    null_method="edge_permutation",
-    n_permutations=10_000,
-    random_state=42,
-    positive_direction="case > control",
+    node_labels=labels,
+    min_size=5,
     store_running_sum=True,
 )
 ```
 
-`positive_direction` 是结果解释的一部分。正富集表示集合边集中在“case > control”的一端；负富集表示集中在相反一端。
+`connectomes` 的第一维必须与 `participants` 的行一一对应。
 
-::: warning 关于 edge permutation
-该零模型会打乱统计量与 edge ID 的对应关系，因此不保留共享节点、拓扑、空间结构或边间协方差。若有受试者级数据，优先考虑统一 GLM 的 contrast-specific Freedman–Lane。
-:::
-
-## 4. 查看结果
+## 2. 写出模型和 contrast
 
 ```python
-summary = result.to_frame()
-print(summary[["set_name", "ES", "NES", "p_value", "q_value", "direction"]])
+design = make_design(
+    indicators={
+        "male": participants["sex"] == "male",
+        "site_B": participants["site"] == "B",
+    },
+    continuous={
+        "age": participants["age"],
+        "motion": participants["mean_fd"],
+    },
+)
 
-item = result.get("example")
-print(item.leading_edge_ids)
+contrasts = {
+    "age": Contrast(
+        {"age": 1},
+        effect_size="partial_r",
+        positive_direction="connectivity increases with age",
+    )
+}
 ```
 
-## 5. 绘制 running sum
+这里每条边的排序量是控制 sex、site 和 motion 后的 signed partial $r$。
+
+## 3. 拟合并做 permutation
+
+```python
+fit = analysis.glm(
+    design,
+    contrasts,
+    n_permutations=10_000,
+    random_state=42,
+    correction_family_id="age-primary",
+)
+
+age_result = fit["age"]
+print(age_result.to_frame()[
+    ["set_name", "ES", "NES", "p_value", "q_value", "direction"]
+])
+```
+
+每次 Freedman–Lane permutation 都会重新计算全部边的 partial $r$，然后重跑排序、
+running sum 和每个 set 的 ES。`q_value` 是网络集合层面的 BH 结果，不是单边校正结果。
+
+## 4. 看一条富集曲线
 
 ```python
 from conlens.plotting import plot_enrichment
 
-plot_enrichment(result, "example", edge_sets["example"])
+set_name = age_result.to_frame().sort_values("q_value").iloc[0]["set_name"]
+plot_enrichment(age_result, set_name, edge_sets[set_name])
 ```
 
-## 6. 保存可追溯结果
-
-```python
-result.save("conlens-result.json")
-```
-
-JSON 中同时保存集合结果、完整排序边表和关键元数据，包括排序规则、零模型、随机种子、方向标签和软件版本。
-
-下一步可阅读 [数据与 edge sets](/guide/data-and-sets) 或进入 [边统计量完整教程](/tutorials/edge-statistics)。
+继续阅读[从个体数据到 LENS](/tutorials/design-and-contrasts)，可以看到 age、组间 contrasts
+及 covariate 调整的六种写法。只有汇总边统计量时，使用[另一条输入路线](/tutorials/edge-statistics)。

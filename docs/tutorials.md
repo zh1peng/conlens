@@ -1,7 +1,8 @@
 # Tutorials
 
-The Chinese VitePress tutorial contains the complete, rendered walkthrough:
-[Design matrix 与 contrasts](https://zh1peng.github.io/conlens/tutorials/design-and-contrasts).
+The Chinese VitePress tutorial starts from the inputs LENS actually consumes, then
+connects subject-level GLM effects and Freedman-Lane permutations to the set-level
+analysis: [从个体数据到 LENS](https://zh1peng.github.io/conlens/tutorials/design-and-contrasts).
 
 ## Continuous association
 

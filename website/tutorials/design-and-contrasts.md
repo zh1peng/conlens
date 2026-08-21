@@ -1,338 +1,139 @@
 ---
-title: Design matrix 与 contrasts
-description: 用统一 GLM 表达连续变量关联、组间比较和协变量调整
+title: 从个体数据到 LENS
+description: 从 connectome、design 和 contrast 生成边排序，并在置换中重跑整个 LENS 分析
 ---
 
-# 教程：构建设计矩阵与 contrasts
+# 从个体数据到 LENS
 
-ConLens 的受试者级分析只有一个入口：
+先把分析对象说清楚。LENS 不直接读取 `age`、`diagnosis` 或 design matrix。对某一个
+contrast，它真正使用的是下面三样东西：
 
-```python
-results = analysis.glm(design, contrasts)
+1. 一套固定的边，也就是 edge universe；
+2. 每条边的一个有符号数值，用来从大到小排序；
+3. 事先定义好的 edge sets，例如网络内和网络间连接。
+
+有个体 connectome 时，ConLens 先用 GLM 为每条边计算排序量，再把同一套计算放进
+subject-level permutation。这样得到的不只是 edge-wise 回归结果，置换分布对应的也是
+最终的 set-level LENS 统计量。
+
+```text
+subject connectomes + design + contrast
+                  │
+                  ├─ observed：逐边效应量 → 全边排序 → running sum → ES
+                  │
+                  └─ permutation：重排 reduced-model residual rows
+                                  → 重新拟合每条边
+                                  → 重新排序并计算每个 set 的 ES
 ```
 
-连续变量关联和组间比较使用同一个 GLM 与同一套 contrast-specific
-Freedman–Lane 推断。两者的区别不是拟合器，而是进入 LENS 排序的效应量：
+如果手头只有一张已经算好的 edge-statistics 表，也可以运行 LENS，但可用的零模型和
+结论范围会更窄。本页最后再讲这种情况。
 
-- 连续变量 contrast：signed Pearson/partial $r$；
-- 分类组间 contrast：model-adjusted signed Hedges' $g$。
+## 1. 准备 connectome 和 edge sets
 
-## 1. Builder 的明确规则
-
-`make_design()` 不猜测变量类型。用户通过不同参数明确声明：
+个体数据是形状为 `(subjects, nodes, nodes)` 的 NumPy 数组。一套分析中的节点顺序、
+边 ID 和 edge-set 成员需要保持不变。
 
 ```python
-from conlens import Contrast, make_design, plot_design
+import numpy as np
+import pandas as pd
 
-design = make_design(
-    indicators={
-        "control": diagnosis == "control",
-        "g1": diagnosis == "g1",
-        "g2": diagnosis == "g2",
-        "male": sex == "male",
-    },
-    continuous={
-        "age": age,
-        "motion": mean_fd,
-    },
-    add_intercept=False,
+from conlens import (
+    Contrast,
+    LensAnalysis,
+    make_design,
+    make_network_pair_sets,
+    matrix_to_edges,
+    plot_design,
+)
+
+connectomes = np.load("connectomes.npy")
+participants = pd.read_csv("participants.tsv", sep="\t")
+labels = np.load("node-labels.npy", allow_pickle=True).tolist()
+
+node_table = pd.read_csv("node-networks.tsv", sep="\t")
+node_networks = dict(zip(node_table["node"], node_table["network"], strict=True))
+
+edge_template = matrix_to_edges(connectomes[0], node_labels=labels)
+edge_sets = make_network_pair_sets(edge_template, node_networks)
+
+analysis = LensAnalysis.from_subject_connectomes(
+    connectomes,
+    edge_sets,
+    node_labels=labels,
+    min_size=5,
+    store_running_sum=True,
 )
 ```
 
-| 输入 | Builder 行为 |
+`edge_sets` 也可以是研究前定义的自定义集合。不要根据当前样本的 edge-wise 结果选边，
+然后再把这些边当作待检验集合。
+
+## 2. Design 和 contrast 分别做什么
+
+Design matrix 描述每个受试者。Contrast 从 design 的列中取出当前要检验的一维效应。
+
+```python
+design = make_design(
+    indicators={
+        "control": participants["diagnosis"] == "control",
+        "g1": participants["diagnosis"] == "g1",
+        "g2": participants["diagnosis"] == "g2",
+        "male": participants["sex"] == "male",
+    },
+    continuous={
+        "age": participants["age"],
+        "motion": participants["mean_fd"],
+    },
+    add_intercept=False,
+)
+
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g1 > control",
+    ),
+    "age": Contrast(
+        {"age": 1},
+        effect_size="partial_r",
+        positive_direction="connectivity increases with age",
+    ),
+}
+```
+
+Contrast 只引用 `design.columns` 中实际存在的名称。没有写出的列权重为 0；拼错列名会
+直接报错。
+
+`make_design()` 的处理规则如下。
+
+| 输入 | 实际处理 |
 | --- | --- |
-| `continuous` | 默认 mean-center；名称保持不变 |
-| `indicators` | 只接受 0/1；不中心化；名称保持不变 |
-| `interactions` | 在连续变量中心化后构造；输出名由用户指定 |
-| `matrix` | 原样使用；不中心化、不增加截距、不构造 interaction |
+| `continuous` | 默认减去样本均值；可用 `center_continuous=False` 关闭 |
+| `indicators` | 只接受 0/1，不做中心化 |
+| `interactions` | 连续变量中心化后再相乘 |
+| `matrix` | 原样使用，不加截距，也不改列 |
 
-Semantic mode 默认增加 `intercept`。使用一列对应一个组均值的 cell-means
-design 时，组 indicator 已经共同承担截距，因此必须传 `add_intercept=False`。
-如果误把截距与全部组 indicators 同时加入，ConLens 会因为 design 不满秩而报错。
+Semantic mode 默认添加截距。上面的 cell-means design 已经为每个组各放一列，所以用了
+`add_intercept=False`。若同时加入截距和全部组 indicators，矩阵不满秩，ConLens 会停止。
 
-关闭连续变量中心化：
+ConLens 不做 sequential orthogonalization。内部会使用数值分解求解模型，但不会改写
+design 或改变 contrast 的含义。矩阵不满秩时报错；condition number 大于 $10^8$ 时给出
+警告。
 
-```python
-design = make_design(
-    continuous={"age": age},
-    center_continuous=False,
-)
-```
-
-如果已经在其他软件中构造并检查好完整 design matrix，可使用 raw-matrix mode：
-
-```python
-design = make_design(
-    matrix=X,
-    column_names=["control", "g1", "g2", "age", "motion"],
-)
-```
-
-该模式逐值使用 `X`，不会静默中心化、增加截距、生成 interaction 或正交化列。
-
-中心化均值、实际列名、interaction 来源、condition number 与是否加入截距均保存在：
-
-```python
-print(design.metadata())
-print(design.frame.head())
-```
-
-ConLens 不进行 sequential regressor orthogonalization。内部数值分解不会修改 design，
-也不会改变 estimand。design 不满秩会立即报错；condition number 大于 $10^8$ 时发出警告。
-
-## 2. Contrast 只引用实际列名
-
-`design.columns` 是 contrast 名称的唯一来源：
-
-```python
-print(design.columns)
-# ('control', 'g1', 'g2', 'male', 'age', 'motion')
-```
-
-未写出的列自动获得权重 0；未知名称会报错。
-
-```python
-g1_vs_control = Contrast(
-    {"g1": 1, "control": -1},
-    effect_size="hedges_g",
-    positive_direction="g1 > control",
-)
-```
-
-Hedges' $g$ 会随 contrast 缩放，因此 ConLens 要求正权重之和为 1、负权重之和为
-$-1$。例如平均两个治疗组对 control 可以写成
-`{"g1": 0.5, "g2": 0.5, "control": -1}`。
-
-## 3. Age
-
-只有一个连续预测变量时，semantic mode 自动加入截距，`age` 默认中心化：
-
-```python
-design = make_design(
-    continuous={"age": age},
-)
-
-contrasts = {
-    "age": Contrast(
-        {"age": 1},
-        effect_size="partial_r",
-        positive_direction="connectivity increases with age",
-    ),
-}
-
-results = analysis.glm(
-    design,
-    contrasts,
-    n_permutations=10_000,
-    random_state=42,
-)
-age_result = results["age"]
-```
-
-没有 covariates 时，该效应量等于每条边与 age 的 signed Pearson $r$。
-
-## 4. Age + covariates
-
-```python
-design = make_design(
-    indicators={
-        "male": sex == "male",       # female 为 reference
-        "site_B": site == "B",       # site A 为 reference
-        "site_C": site == "C",
-    },
-    continuous={
-        "age": age,
-        "motion": mean_fd,
-    },
-)
-
-contrasts = {
-    "age": Contrast(
-        {"age": 1},
-        effect_size="partial_r",
-        positive_direction="connectivity increases with age",
-    ),
-}
-
-results = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
-```
-
-这里进入 LENS 排序的是控制 sex、site 和 motion 后的 signed partial $r$。
-中心化只改变截距的解释，不改变没有 interaction 时的 age slope、t 或 partial $r$。
-
-## 5. G1 vs. control
-
-```python
-design = make_design(
-    indicators={
-        "control": diagnosis == "control",
-        "g1": diagnosis == "g1",
-    },
-    add_intercept=False,
-)
-
-contrasts = {
-    "g1_vs_control": Contrast(
-        {"g1": 1, "control": -1},
-        effect_size="hedges_g",
-        positive_direction="g1 > control",
-    ),
-}
-
-results = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
-```
-
-没有 covariates 时，这是基于两组共同 full-model residual SD 的 signed Hedges' $g$。
-在只有两个组的同方差 OLS 中，它对应常规 pooled-residual standardized mean difference，
-并带 residual-df small-sample correction。
-
-## 6. G1 vs. control + covariates
-
-```python
-design = make_design(
-    indicators={
-        "control": diagnosis == "control",
-        "g1": diagnosis == "g1",
-        "male": sex == "male",
-        "site_B": site == "B",
-        "site_C": site == "C",
-    },
-    continuous={
-        "age": age,
-        "motion": mean_fd,
-    },
-    add_intercept=False,
-)
-
-contrasts = {
-    "g1_vs_control": Contrast(
-        {"g1": 1, "control": -1},
-        effect_size="hedges_g",
-        positive_direction="g1 > control",
-    ),
-}
-
-results = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
-```
-
-`g1 - control` 是在平均 age、平均 motion、female 和 site A 处的调整后组均值差。
-进入 LENS 的 $g$ 使用这个调整后差值和整个 full model 的 residual SD。
-
-## 7. G1 vs. control 与 G2 vs. control
-
-```python
-design = make_design(
-    indicators={
-        "control": diagnosis == "control",
-        "g1": diagnosis == "g1",
-        "g2": diagnosis == "g2",
-    },
-    add_intercept=False,
-)
-
-contrasts = {
-    "g1_vs_control": Contrast(
-        {"g1": 1, "control": -1},
-        effect_size="hedges_g",
-        positive_direction="g1 > control",
-    ),
-    "g2_vs_control": Contrast(
-        {"g2": 1, "control": -1},
-        effect_size="hedges_g",
-        positive_direction="g2 > control",
-    ),
-}
-
-results = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
-```
-
-两个 contrast 使用同一个三组 full model。因此每条边上两个 Hedges' $g$ 的
-$s_{\mathrm{res}}$ 都来自包含 control、g1 和 g2 的完整模型，而不是各自两组子样本。
-
-## 8. G1 vs. control 与 G2 vs. control + covariates
-
-```python
-design = make_design(
-    indicators={
-        "control": diagnosis == "control",
-        "g1": diagnosis == "g1",
-        "g2": diagnosis == "g2",
-        "male": sex == "male",
-        "site_B": site == "B",
-        "site_C": site == "C",
-    },
-    continuous={
-        "age": age,
-        "motion": mean_fd,
-    },
-    add_intercept=False,
-)
-
-contrasts = {
-    "g1_vs_control": Contrast(
-        {"g1": 1, "control": -1},
-        effect_size="hedges_g",
-        positive_direction="g1 > control",
-    ),
-    "g2_vs_control": Contrast(
-        {"g2": 1, "control": -1},
-        effect_size="hedges_g",
-        positive_direction="g2 > control",
-    ),
-}
-
-results = analysis.glm(
-    design,
-    contrasts,
-    exchangeability_blocks=family_id,
-    n_permutations=10_000,
-    random_state=42,
-    correction_family_id="primary-diagnosis-contrasts",
-)
-
-print(results.to_frame().sort_values(["contrast_name", "q_value"]))
-```
-
-ConLens 对每个 contrast 构造自己的 reduced model，并在所有
-`contrast × valid edge sets` 的 nominal P 值上执行一次联合 BH。
-
-## 9. Design 与 contrast 可视化
-
-在运行耗时的 permutation 前先检查实际 design：
+在开始大量置换前，可以直接看实际送入模型的矩阵和 contrasts：
 
 ```python
 axes = plot_design(design, contrasts)
 axes[0].figure.savefig("design-and-contrasts.png", dpi=200)
 ```
 
-左图显示最终进入 GLM 的 design（仅为显示而按列缩放）；右图显示具名 contrast。
-图标题同时报告 rank 和 condition number。可视化不会改变实际拟合矩阵。
+左图是最终 design，显示时按列缩放；右图是 contrast 权重。图中的 rank 和 condition
+number 也值得检查。绘图本身不改动拟合矩阵。
 
-## 10. Interaction
+## 3. 哪个数值进入边排序
 
-Interaction 的最终名称和来源都必须显式声明：
-
-```python
-design = make_design(
-    indicators={
-        "control": diagnosis == "control",
-        "g1": diagnosis == "g1",
-    },
-    continuous={"age": age},
-    interactions={"g1_age": ("g1", "age")},
-    add_intercept=False,
-)
-```
-
-`g1_age` 使用已经中心化的 `age` 构造。此参数化中：
-
-- `{"age": 1}`：control 的 age slope；
-- `{"g1_age": 1}`：g1 相对 control 的 slope difference；
-- `{"age": 1, "g1_age": 1}`：g1 的 age slope。
-
-## 11. 进入 LENS 的效应量
-
-对边 $e$ 拟合完整模型
+对每条边 $e$，完整模型为
 
 $$
 \mathbf y_e = \mathbf X\boldsymbol\beta_e + \boldsymbol\varepsilon_e,
@@ -340,7 +141,7 @@ $$
 df_{\mathrm{res}} = n - \operatorname{rank}(\mathbf X).
 $$
 
-给定一自由度 contrast $\mathbf c$，ConLens 保存
+对一自由度 contrast $\mathbf c$，ConLens 保存
 
 $$
 \hat\beta_{c,e}=\mathbf c^\mathsf{T}\hat{\boldsymbol\beta}_e,
@@ -350,12 +151,21 @@ $$
 SE_{c,e}=s_{\mathrm{res},e}
 \sqrt{\mathbf c^\mathsf{T}(\mathbf X^\mathsf{T}\mathbf X)^{-1}\mathbf c},
 \qquad
-t_{c,e}=\frac{\hat\beta_{c,e}}{SE_{c,e}},
+t_{c,e}=\frac{\hat\beta_{c,e}}{SE_{c,e}}.
 $$
 
-以及 residual df 和双侧 edge-wise P 值。edge-wise P 值仅用于审计，不用于预筛边。
+边的双侧 P 值会保存在结果中，便于复核拟合，但 LENS 不用它筛边。排序使用下面的
+signed effect size。
 
-### 连续变量：signed partial r
+### 连续变量：Pearson r 或 partial r
+
+```python
+Contrast(
+    {"age": 1},
+    effect_size="partial_r",
+    positive_direction="connectivity increases with age",
+)
+```
 
 $$
 r_{\mathrm{partial},e}
@@ -363,10 +173,18 @@ r_{\mathrm{partial},e}
 \frac{t_{c,e}}{\sqrt{t_{c,e}^{2}+df_{\mathrm{res}}}}.
 $$
 
-没有 covariates 时它等于 Pearson $r$；有 covariates 时是该一自由度 contrast 的
-signed partial correlation。
+模型只有 `age` 和截距时，它等于 Pearson $r$。加入 motion、sex 或 site 后，它是控制
+这些列后的 signed partial $r$。
 
-### 组间 contrast：model-adjusted signed Hedges' g
+### 组间 contrast：model-adjusted Hedges' g
+
+```python
+Contrast(
+    {"g1": 1, "control": -1},
+    effect_size="hedges_g",
+    positive_direction="g1 > control",
+)
+```
 
 $$
 g_e
@@ -388,21 +206,270 @@ s_{\mathrm{res},e}
 }.
 $$
 
-这里的 $s_{\mathrm{res},e}$ 始终来自完整模型，包含所有组、covariates 和 interaction；
-它不是从当前 contrast 涉及的两个组重新计算的 SD。
+$s_{\mathrm{res},e}$ 来自完整模型。三组模型中的 `g1 - control` 和 `g2 - control` 都使用
+三组共同拟合后的 residual SD；加了 covariates 时，这些列也属于同一个完整模型。ConLens
+不会为了某一个 contrast 另取两个组重算 SD。
 
-ConLens 按上述 signed effect 从大到小排列全部边，然后计算 running sum、ES 和
-leading edge。它不按 edge-wise P 值筛选边。
+Hedges' $g$ 会随 contrast 的整体缩放而改变，因此正权重之和必须是 1，负权重之和必须
+是 $-1$。例如两治疗组均值对 control 可写成
+`{"g1": 0.5, "g2": 0.5, "control": -1}`。
 
-## 12. Contrast-specific Freedman–Lane
+## 4. Permutation 检验的是 LENS 结果
 
-每个 contrast 检验 $H_0:\mathbf c^\mathsf{T}\boldsymbol\beta_e=0$。ConLens 使用该
-约束对应的 reduced design 拟合 $\hat{\mathbf y}_{0,e}$ 与 residual matrix
-$\mathbf R_0$，并构造
+`analysis.glm()` 使用 contrast-specific Freedman–Lane。对 contrast $\mathbf c$，零假设为
 
 $$
-\mathbf Y_b^* = \hat{\mathbf Y}_0 + \mathbf P_b\mathbf R_0.
+H_0:\mathbf c^\mathsf{T}\boldsymbol\beta_e=0.
 $$
 
-每次 replicate 重新拟合 full model、重新计算效应量、重新排序全部边并重新计算全部
-edge sets。不同 contrast 的 reduced model 不会被错误地共享。
+ConLens 先在这个约束下拟合 reduced model，得到 $\hat{\mathbf Y}_0$ 和 residual matrix
+$\mathbf R_0$。第 $b$ 次置换的数据是
+
+$$
+\mathbf Y_b^*=\hat{\mathbf Y}_0+\mathbf P_b\mathbf R_0.
+$$
+
+这里的 $\mathbf P_b$ 对所有边相同，所以同一受试者内的边间依赖没有被拆开。每次置换
+随后会：
+
+1. 用完整 design 重新拟合所有边；
+2. 重新计算该 contrast 的 partial $r$ 或 Hedges' $g$；
+3. 重新排序整个 edge universe；
+4. 为每个 edge set 重新计算 running sum 和 ES。
+
+Observed ES 最终与这些 permuted ES 比较，得到 NES 和 set-level P 值。如果一次
+`analysis.glm()` 中有多个 contrasts，ConLens 对所有 `contrast × valid edge set` 的
+P 值做一次 BH 校正。
+
+`exchangeability_blocks` 只约束哪些 residual rows 可以互换。它不会替代 design 中的
+site、family 或其他 covariates。若数据包含 family、重复测量或其他 cluster，置换单位和
+design 都要与采样结构相符；仅把变量传给 `exchangeability_blocks` 并不能自动修正模型。
+
+## 5. 六种常见写法
+
+下面只列出 design 和 contrast 的变化。`analysis` 和 `edge_sets` 沿用本页开头的对象。
+
+### Age
+
+```python
+design = make_design(continuous={"age": participants["age"]})
+contrasts = {
+    "age": Contrast(
+        {"age": 1},
+        effect_size="partial_r",
+        positive_direction="connectivity increases with age",
+    )
+}
+
+fit = analysis.glm(
+    design,
+    contrasts,
+    n_permutations=10_000,
+    random_state=42,
+)
+age_result = fit["age"]
+```
+
+进入排序的是 Pearson $r$。
+
+### Age + covariates
+
+```python
+design = make_design(
+    indicators={
+        "male": participants["sex"] == "male",
+        "site_B": participants["site"] == "B",
+        "site_C": participants["site"] == "C",
+    },
+    continuous={
+        "age": participants["age"],
+        "motion": participants["mean_fd"],
+    },
+)
+
+contrasts = {
+    "age": Contrast(
+        {"age": 1},
+        effect_size="partial_r",
+        positive_direction="connectivity increases with age",
+    )
+}
+
+fit = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
+```
+
+进入排序的是控制 sex、site 和 motion 后的 partial $r$。没有 interaction 时，连续变量
+中心化只改变截距的解释，不改变 age 的 slope、t 或 partial $r$。
+
+### G1 vs. control
+
+```python
+design = make_design(
+    indicators={
+        "control": participants["diagnosis"] == "control",
+        "g1": participants["diagnosis"] == "g1",
+    },
+    add_intercept=False,
+)
+
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g1 > control",
+    )
+}
+
+fit = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
+```
+
+这是两组共同 residual SD 标准化后的 Hedges' $g$。
+
+### G1 vs. control + covariates
+
+```python
+design = make_design(
+    indicators={
+        "control": participants["diagnosis"] == "control",
+        "g1": participants["diagnosis"] == "g1",
+        "male": participants["sex"] == "male",
+        "site_B": participants["site"] == "B",
+        "site_C": participants["site"] == "C",
+    },
+    continuous={
+        "age": participants["age"],
+        "motion": participants["mean_fd"],
+    },
+    add_intercept=False,
+)
+
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g1 > control",
+    )
+}
+
+fit = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
+```
+
+这里的 $g$ 使用调整后的 `g1 - control` 和完整模型的 residual SD。
+
+### G1 vs. control 与 G2 vs. control
+
+```python
+design = make_design(
+    indicators={
+        "control": participants["diagnosis"] == "control",
+        "g1": participants["diagnosis"] == "g1",
+        "g2": participants["diagnosis"] == "g2",
+    },
+    add_intercept=False,
+)
+
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g1 > control",
+    ),
+    "g2_vs_control": Contrast(
+        {"g2": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g2 > control",
+    ),
+}
+
+fit = analysis.glm(design, contrasts, n_permutations=10_000, random_state=42)
+```
+
+两个 contrasts 来自同一个三组模型，residual SD 也来自这一个模型。
+
+### G1 vs. control 与 G2 vs. control + covariates
+
+```python
+design = make_design(
+    indicators={
+        "control": participants["diagnosis"] == "control",
+        "g1": participants["diagnosis"] == "g1",
+        "g2": participants["diagnosis"] == "g2",
+        "male": participants["sex"] == "male",
+        "site_B": participants["site"] == "B",
+        "site_C": participants["site"] == "C",
+    },
+    continuous={
+        "age": participants["age"],
+        "motion": participants["mean_fd"],
+    },
+    add_intercept=False,
+)
+
+contrasts = {
+    "g1_vs_control": Contrast(
+        {"g1": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g1 > control",
+    ),
+    "g2_vs_control": Contrast(
+        {"g2": 1, "control": -1},
+        effect_size="hedges_g",
+        positive_direction="g2 > control",
+    ),
+}
+
+fit = analysis.glm(
+    design,
+    contrasts,
+    n_permutations=10_000,
+    random_state=42,
+    correction_family_id="primary-diagnosis-contrasts",
+)
+
+print(fit.to_frame().sort_values(["contrast_name", "q_value"]))
+```
+
+这里有两个 contrasts，但只需拟合一次分析。两组结果属于同一个 correction family，BH
+覆盖两个 contrasts 和全部有效 edge sets。
+
+## 6. 如果只有 edge statistics
+
+没有个体 connectome 时，LENS 仍可从一张完整的有符号边表计算 ES 和 leading edge：
+
+```python
+from conlens import lens_enrich
+
+result = lens_enrich(
+    edges,
+    edge_sets,
+    positive_direction="case > control",
+    store_running_sum=True,
+)
+```
+
+这时结果是描述性的，`NES`、`p_value` 和 `q_value` 都是 `None`。
+
+若使用内置 edge permutation：
+
+```python
+result = lens_enrich(
+    edges,
+    edge_sets,
+    null_method="edge_permutation",
+    n_permutations=10_000,
+    random_state=42,
+    positive_direction="case > control",
+)
+```
+
+它随机打乱 statistic 与 edge ID 的对应关系。集合大小和集合重叠仍在，但共享节点、网络
+拓扑、空间结构和 edge covariance 都被破坏。因此它回答的是 competitive edge-label
+问题，不能当作 subject-level GLM permutation 的近似替代。
+
+如果外部软件已经按正确研究设计生成了 null ES、edge-statistic matrices 或 rank
+matrices，可以使用 `null_method="provided_null"`。Observed 与 null 必须有相同的 edge
+顺序、edge sets 和方向定义；rank matrix 只支持 unweighted enrichment。外部 null 保留
+了什么结构，完全取决于它的生成过程。
+
+只有汇总 edge statistics、又无法建立合理 null 时，报告 ES、方向和 leading edge 即可，
+不要给描述性结果补上推断性表述。完整代码见[只有 edge statistics 时](/tutorials/edge-statistics)。
