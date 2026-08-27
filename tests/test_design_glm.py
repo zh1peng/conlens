@@ -1,8 +1,10 @@
+from dataclasses import asdict
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from conlens import Contrast, lens_fl_permute, lens_glm, make_design, plot_design
+from conlens import Contrast, lens_fl_permute, lens_glm, lens_stat, make_design, plot_design
 
 
 def connectomes(seed=1, n=24, nodes=5):
@@ -85,6 +87,36 @@ def test_glm_effect_sizes_use_full_model_residuals_and_fl_is_reproducible():
             assert list(left[name].table) == [
                 "node1", "node2", "edge_id", "canonical_edge_id", "statistic"
             ]
+
+
+def test_numpy_fl_lens_path_is_exactly_equal_to_materialized_pandas():
+    values = connectomes(n=24, nodes=6)
+    design = make_design(continuous={"age": np.arange(24.0)})
+    contrasts = {"age": Contrast({"age": 1}, "partial_r", "positive")}
+    edge_sets = {
+        "first": {"0--1", "0--2", "0--3"},
+        "second": {"1--2", "1--3", "2--3"},
+    }
+    fast_generator = lens_fl_permute(
+        values, design=design, contrasts=contrasts, n_permutations=11, random_state=5
+    )
+    reference_generator = lens_fl_permute(
+        values, design=design, contrasts=contrasts, n_permutations=11, random_state=5
+    )
+    for fast_edges, reference_edges in zip(
+        fast_generator, reference_generator, strict=True
+    ):
+        reference = reference_edges["age"]
+        _ = reference.table
+        fast_stat = lens_stat(fast_edges, edge_sets)["age"]
+        reference_stat = lens_stat(reference_edges, edge_sets)["age"]
+        assert [asdict(item) for item in fast_stat.sets] == [
+            asdict(item) for item in reference_stat.sets
+        ]
+        assert fast_stat.metadata == reference_stat.metadata
+        pd.testing.assert_frame_equal(
+            fast_stat.ranked_edges, reference_stat.ranked_edges, check_exact=True
+        )
 
 
 def test_contrasts_and_design_plot_validation():

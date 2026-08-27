@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.1 - 2026-08-27
+
+- Replaced the repeated null LENS DataFrame path with a lazy, NumPy-based
+  implementation using precompiled integer edge-set membership and tie ranks.
+- Kept the public Pandas tables, result schemas, statistical definitions, random
+  streams, and serialized outputs unchanged.
+- Added exact equivalence tests against the materialized 2.0.0 Pandas path for
+  edge permutation and Freedman–Lane workflows, including ties, all score types,
+  multiple weights, and invalid edge sets.
+- Added a reproducible benchmark that verifies exact ES equality before reporting
+  speedup.
+
 ## 2.0.0 - 2026-08-21
 
 - Rebuilt the public workflow around `lens_glm`, `lens_stat`, streaming null

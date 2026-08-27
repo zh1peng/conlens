@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -11,6 +12,7 @@ from conlens import (
     LeadingNetwork,
     LensResult,
     LensStabilityResult,
+    LensStatResult,
     build_leading_network,
     compare_leading_edges,
     compare_lens_results,
@@ -211,6 +213,25 @@ def test_serializable_edge_and_glm_results(example_edges, tmp_path: Path):
     restored_edge = EdgeStatistics.load(edge_path)
     assert edge.to_dict()["schema_version"] == 1
     pd.testing.assert_frame_equal(restored_edge.table, edge.table)
+    lazy_edge = next(lens_edge_permute(edge, n_permutations=1, random_state=7))
+    lazy_edge_path = tmp_path / "lazy-edge.json"
+    lazy_edge.save(lazy_edge_path)
+    pd.testing.assert_frame_equal(
+        EdgeStatistics.load(lazy_edge_path).table, lazy_edge.table, check_exact=True
+    )
+    lazy_stat = lens_stat(
+        next(lens_edge_permute(edge, n_permutations=1, random_state=7)),
+        {"target": {"0--1", "0--2"}},
+    )
+    lazy_stat_path = tmp_path / "lazy-stat.json"
+    lazy_stat.save(lazy_stat_path)
+    restored_stat = LensStatResult.load(lazy_stat_path)
+    assert [asdict(item) for item in restored_stat.sets] == [
+        asdict(item) for item in lazy_stat.sets
+    ]
+    pd.testing.assert_frame_equal(
+        restored_stat.ranked_edges, lazy_stat.ranked_edges, check_exact=True
+    )
     result = inferred_result(example_edges)
     glm = GLMResult({"demo": result}, {"family_name": "demo"})
     glm_path = tmp_path / "glm.json"

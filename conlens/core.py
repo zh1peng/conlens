@@ -5,13 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from .data import validate_edge_table
-from .results import EdgeStatistics, LensSetResult, LensStatResult
+from .results import EdgeStatistics, LensSetResult, LensStatResult, _NumericEdgeTemplate
 from .sets import validate_edge_sets
 
 TOLERANCE = 1e-12
@@ -91,8 +92,10 @@ def compute_running_sum(
     weight: float = 1.0,
     tolerance: float = TOLERANCE,
 ) -> tuple[np.ndarray, bool]:
-    values = np.asarray(list(statistics), dtype=float)
-    membership = np.asarray(list(hits), dtype=bool)
+    values = np.asarray(
+        statistics if isinstance(statistics, np.ndarray) else list(statistics), dtype=float
+    )
+    membership = np.asarray(hits if isinstance(hits, np.ndarray) else list(hits), dtype=bool)
     if values.ndim != 1 or membership.ndim != 1 or len(values) != len(membership):
         raise ValueError("statistics and hits must be one-dimensional arrays of equal length")
     if not np.isfinite(values).all():
@@ -131,7 +134,9 @@ def compute_enrichment_score(
     score_type: str = "standard",
     tolerance: float = TOLERANCE,
 ) -> dict[str, Any]:
-    profile = np.asarray(list(running_sum), dtype=float)
+    profile = np.asarray(
+        running_sum if isinstance(running_sum, np.ndarray) else list(running_sum), dtype=float
+    )
     if profile.ndim != 1 or len(profile) < 2 or not np.isfinite(profile).all():
         raise ValueError("running_sum must be a finite one-dimensional profile including RS(0)")
     if score_type not in {"standard", "positive", "negative"}:
@@ -167,8 +172,10 @@ def extract_leading_edges(
     score: float,
     peak_rank: int | None,
 ) -> list[str]:
-    identifiers = np.asarray(list(edge_ids), dtype=object)
-    membership = np.asarray(list(hits), dtype=bool)
+    identifiers = np.asarray(
+        edge_ids if isinstance(edge_ids, np.ndarray) else list(edge_ids), dtype=object
+    )
+    membership = np.asarray(hits if isinstance(hits, np.ndarray) else list(hits), dtype=bool)
     if len(identifiers) != len(membership):
         raise ValueError("edge_ids and hits must have equal length")
     if score == 0 or peak_rank is None:
@@ -252,6 +259,189 @@ def make_edge_statistics(
     return result
 
 
+@dataclass(slots=True)
+class _NumericLensPlan:
+    input_sets: dict[str, list[str]]
+    sets: dict[str, set[str]]
+    edge_ids: np.ndarray
+    node1: np.ndarray
+    node2: np.ndarray
+    tie_ranks: np.ndarray
+    membership: dict[str, np.ndarray]
+    identity_metadata: dict[str, Any]
+
+
+def _numeric_plan(
+    template: _NumericEdgeTemplate,
+    edge_sets: Mapping[str, Iterable[str]],
+    metadata: Mapping[str, Any],
+) -> _NumericLensPlan:
+    input_sets = {
+        str(name): [str(member) for member in members] for name, members in edge_sets.items()
+    }
+    cache_key = tuple((name, tuple(members)) for name, members in input_sets.items())
+    cached = template.plans.get(cache_key)
+    if cached is not None:
+        if not isinstance(cached, _NumericLensPlan):
+            raise RuntimeError("numeric LENS plan cache is corrupted")
+        return cached
+    frame = template.frame
+    edge_ids = frame["edge_id"].astype(str).to_numpy(copy=True)
+    universe = set(edge_ids.tolist())
+    sets = validate_edge_sets(input_sets, universe)
+    canonical_column = "canonical_edge_id" if "canonical_edge_id" in frame else "edge_id"
+    edge_mapping = (
+        frame[["edge_id", canonical_column]].sort_values("edge_id").to_dict("records")
+    )
+    plan = _NumericLensPlan(
+        input_sets=input_sets,
+        sets=sets,
+        edge_ids=edge_ids,
+        node1=frame["node1"].to_numpy(dtype=object, copy=True),
+        node2=frame["node2"].to_numpy(dtype=object, copy=True),
+        tie_ranks=np.argsort(
+            np.argsort(
+                frame[canonical_column].astype(str).to_numpy(copy=True), kind="stable"
+            ),
+            kind="stable",
+        ),
+        membership={
+            name: np.isin(edge_ids, np.asarray(sorted(members), dtype=object))
+            for name, members in sets.items()
+        },
+        identity_metadata={
+            "edge_universe_hash": _hash_payload(sorted(universe)),
+            "edge_mapping_hash": _hash_payload(edge_mapping),
+            "node_identity_hash": _node_identity_hash(frame, metadata),
+            "edge_universe_size": len(universe),
+            "set_definition_hash": _hash_payload(
+                {name: sorted(members) for name, members in sorted(sets.items())}
+            ),
+        },
+    )
+    template.plans[cache_key] = plan
+    return plan
+
+
+def _numeric_tie_metadata(statistics: np.ndarray) -> dict[str, Any]:
+    adjacent = statistics[:-1] == statistics[1:]
+    tied = np.zeros(len(statistics), dtype=bool)
+    tied[:-1] |= adjacent
+    tied[1:] |= adjacent
+    return {
+        "n_tied_edges": int(tied.sum()),
+        "tied_edge_fraction": float(tied.mean()),
+        "tie_method": "statistic_desc_then_canonical_edge_id_asc_stable",
+    }
+
+
+def _lens_stat_numeric(
+    edge_statistics: EdgeStatistics,
+    template: _NumericEdgeTemplate,
+    statistics: np.ndarray,
+    edge_sets: Mapping[str, Iterable[str]],
+    *,
+    weight: float,
+    score_type: str,
+    store_running_sum: bool,
+) -> LensStatResult:
+    if not np.isfinite(weight) or weight < 0:
+        raise ValueError("weight must be a finite number >= 0")
+    if score_type not in {"standard", "positive", "negative"}:
+        raise ValueError("score_type must be 'standard', 'positive', or 'negative'")
+    direction = edge_statistics.metadata.get("positive_direction")
+    if not isinstance(direction, str) or not direction.strip():
+        raise ValueError("positive_direction must be supplied for signed edge statistics")
+    values = np.asarray(statistics, dtype=float)
+    if values.ndim != 1 or len(values) != len(template.frame):
+        raise ValueError("numeric edge statistics have an incompatible shape")
+    if not np.isfinite(values).all():
+        raise ValueError("statistics must be finite")
+    if np.unique(values).size <= 1:
+        raise ValueError("all statistics are identical; ranked list is not interpretable")
+    plan = _numeric_plan(template, edge_sets, edge_statistics.metadata)
+    order = np.lexsort((plan.tie_ranks, -values))
+    ranked_statistics = values[order]
+    ranked_edge_ids = plan.edge_ids[order]
+    output: list[LensSetResult] = []
+    for name, members in plan.sets.items():
+        if len(members) in {0, len(values)}:
+            reason = "empty set" if not members else "full-universe set"
+            output.append(
+                LensSetResult(
+                    set_name=name,
+                    set_size_input=len(plan.input_sets[name]),
+                    set_size_effective=len(members),
+                    ES=None,
+                    ES_positive=None,
+                    ES_negative=None,
+                    status="invalid",
+                    warnings=[reason],
+                    edge_set_ids=sorted(members),
+                )
+            )
+            continue
+        hits = plan.membership[name][order]
+        profile, fallback = compute_running_sum(ranked_statistics, hits, weight=weight)
+        score = compute_enrichment_score(profile, score_type=score_type)
+        if score["ES"] != 0 and score["peak_rank"] is not None:
+            ranks = np.arange(1, len(values) + 1)
+            selected = hits & (
+                ranks <= score["peak_rank"]
+                if score["ES"] > 0
+                else ranks > score["peak_rank"]
+            )
+            leading_ids = ranked_edge_ids[selected].astype(str).tolist()
+            selected_original = order[selected]
+            leading_nodes = list(
+                dict.fromkeys(
+                    [
+                        *plan.node1[selected_original].tolist(),
+                        *plan.node2[selected_original].tolist(),
+                    ]
+                )
+            )
+        else:
+            leading_ids = []
+            leading_nodes = []
+        output.append(
+            LensSetResult(
+                set_name=name,
+                set_size_input=len(plan.input_sets[name]),
+                set_size_effective=len(members),
+                ES=score["ES"],
+                ES_positive=score["ES_positive"],
+                ES_negative=score["ES_negative"],
+                direction=score["direction"],
+                peak_rank=score["peak_rank"],
+                peak_fraction=(
+                    None if score["peak_rank"] is None else score["peak_rank"] / len(values)
+                ),
+                leading_edge_ids=leading_ids,
+                leading_edge_size=len(leading_ids),
+                leading_edge_fraction=len(leading_ids) / len(members),
+                leading_node_ids=leading_nodes,
+                zero_weight_fallback=fallback,
+                edge_set_ids=sorted(members),
+                running_sum=profile.tolist() if store_running_sum else None,
+            )
+        )
+    metadata = {
+        **edge_statistics.metadata,
+        **plan.identity_metadata,
+        "weight_exponent": weight,
+        "score_type": score_type,
+        **_numeric_tie_metadata(ranked_statistics),
+    }
+    return LensStatResult._from_numeric(
+        output,
+        metadata,
+        template,
+        order,
+        ranked_statistics,
+    )
+
+
 def _score_set(
     name: str,
     input_size: int,
@@ -299,6 +489,25 @@ def _lens_stat_one(
     score_type: str,
     store_running_sum: bool,
 ) -> LensStatResult:
+    if isinstance(edge_statistics, EdgeStatistics):
+        numeric = edge_statistics._numeric_parts()
+        if numeric is not None:
+            stored_direction = edge_statistics.metadata.get("positive_direction")
+            if positive_direction is not None and stored_direction not in {
+                None,
+                positive_direction,
+            }:
+                raise ValueError("positive_direction conflicts with edge-statistic metadata")
+            template, statistics = numeric
+            return _lens_stat_numeric(
+                edge_statistics,
+                template,
+                statistics,
+                edge_sets,
+                weight=weight,
+                score_type=score_type,
+                store_running_sum=store_running_sum,
+            )
     if not np.isfinite(weight) or weight < 0:
         raise ValueError("weight must be a finite number >= 0")
     if score_type not in {"standard", "positive", "negative"}:

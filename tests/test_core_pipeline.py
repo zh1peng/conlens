@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -52,6 +54,64 @@ def test_streamed_edge_null_is_reproducible_and_retained(example_edges, example_
     assert first.null_for("positive").equals(first.null_scores["positive"])
     with pytest.raises(KeyError):
         first.null_for("missing")
+
+
+def test_numpy_edge_null_path_is_exactly_equal_to_materialized_pandas(
+    example_edges, example_sets
+):
+    edges = prepared(example_edges)
+    observed = lens_stat(edges, example_sets, store_running_sum=True)
+
+    fast_null = (
+        lens_stat(item, example_sets)
+        for item in lens_edge_permute(edges, n_permutations=17, random_state=12)
+    )
+
+    def pandas_null():
+        for item in lens_edge_permute(edges, n_permutations=17, random_state=12):
+            _ = item.table
+            yield lens_stat(item, example_sets)
+
+    fast = lens_enrich(observed, fast_null, min_size=1, family_name="equivalence")
+    reference = lens_enrich(
+        observed, pandas_null(), min_size=1, family_name="equivalence"
+    )
+    assert [asdict(item) for item in fast.sets] == [
+        asdict(item) for item in reference.sets
+    ]
+    assert fast.metadata == reference.metadata
+    pd.testing.assert_frame_equal(fast.null_scores, reference.null_scores, check_exact=True)
+    pd.testing.assert_frame_equal(fast.ranked_edges, reference.ranked_edges, check_exact=True)
+
+
+@pytest.mark.parametrize(
+    ("weight", "score_type"),
+    [(0.0, "standard"), (1.0, "positive"), (2.0, "negative")],
+)
+def test_numpy_null_oracle_covers_ties_weights_and_invalid_sets(
+    example_edges, weight, score_type
+):
+    tied = example_edges.copy()
+    tied.loc[1, "statistic"] = tied.loc[0, "statistic"]
+    edges = make_edge_statistics(tied, positive_direction="higher")
+    identifiers = edges.table["edge_id"].tolist()
+    edge_sets = {
+        "target": identifiers[:3],
+        "empty": [],
+        "full": identifiers,
+    }
+    fast_item = next(lens_edge_permute(edges, n_permutations=1, random_state=3))
+    reference_item = next(lens_edge_permute(edges, n_permutations=1, random_state=3))
+    _ = reference_item.table
+    fast = lens_stat(fast_item, edge_sets, weight=weight, score_type=score_type)
+    reference = lens_stat(
+        reference_item, edge_sets, weight=weight, score_type=score_type
+    )
+    assert [asdict(item) for item in fast.sets] == [
+        asdict(item) for item in reference.sets
+    ]
+    assert fast.metadata == reference.metadata
+    pd.testing.assert_frame_equal(fast.ranked_edges, reference.ranked_edges, check_exact=True)
 
 
 def test_mapping_uses_joint_bh_family(example_edges, example_sets):

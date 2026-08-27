@@ -43,6 +43,10 @@ fit = lens_enrich(observed, null_stats, family_name="primary-model")
 每次 null 的边统计量在算完 ES 后即可释放。最终 `LensResult.null_scores` 只保留每个
 permutation × tested set 的 ES。这正是计算 NES、经验 P 值和画 null 分布所需的信息。
 
+从 2.0.1 起，重复的 null 计算内部使用预编译的整数 edge-set 表示和 NumPy arrays；只有用户
+读取 edge table、保存结果或构造最终 observed 输出时才 materialize DataFrame。这个变化不改变
+排序、running sum、ES、leading edge、NES、P 或 Q 的定义。
+
 ## P、NES 与联合 BH
 
 Observed ES 为正时只使用非负 null tail；为负时只使用非正 tail。经验 P 值采用 plus-one：

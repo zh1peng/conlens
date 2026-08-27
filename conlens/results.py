@@ -95,11 +95,59 @@ def _load_payload(path: str | Path) -> dict[str, Any]:
 
 
 @dataclass(slots=True)
+class _NumericEdgeTemplate:
+    frame: pd.DataFrame
+    plans: dict[Any, Any] = field(default_factory=dict)
+
+
+@dataclass(init=False, slots=True)
 class EdgeStatistics:
     """One signed edge-statistic table plus its model and identity metadata."""
 
-    table: pd.DataFrame
-    metadata: dict[str, Any] = field(default_factory=dict)
+    _table: pd.DataFrame | None
+    metadata: dict[str, Any]
+    _numeric_template: _NumericEdgeTemplate | None
+    _statistics: np.ndarray | None
+
+    def __init__(
+        self,
+        table: pd.DataFrame,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self._table = table
+        self.metadata = {} if metadata is None else metadata
+        self._numeric_template = None
+        self._statistics = None
+
+    @classmethod
+    def _from_numeric(
+        cls,
+        template: _NumericEdgeTemplate,
+        statistics: np.ndarray,
+        metadata: dict[str, Any],
+    ) -> EdgeStatistics:
+        result = cls.__new__(cls)
+        result._table = None
+        result.metadata = metadata
+        result._numeric_template = template
+        result._statistics = np.asarray(statistics, dtype=float)
+        return result
+
+    @property
+    def table(self) -> pd.DataFrame:
+        if self._table is None:
+            if self._numeric_template is None or self._statistics is None:
+                raise RuntimeError("numeric edge statistics are incomplete")
+            frame = self._numeric_template.frame.copy()
+            frame["statistic"] = self._statistics
+            frame.attrs.update(self._numeric_template.frame.attrs)
+            self._table = frame
+        return self._table
+
+    def _numeric_parts(self) -> tuple[_NumericEdgeTemplate, np.ndarray] | None:
+        if self._table is not None or self._numeric_template is None or self._statistics is None:
+            return None
+        return self._numeric_template, self._statistics
 
     def to_dict(self) -> dict[str, Any]:
         return _jsonable(_result_payload(
@@ -161,13 +209,62 @@ def _sets_frame(sets: list[LensSetResult]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@dataclass(slots=True)
+@dataclass(init=False, slots=True)
 class LensStatResult:
     """Deterministic set statistics for one signed edge ranking."""
 
     sets: list[LensSetResult]
     metadata: dict[str, Any]
-    ranked_edges: pd.DataFrame
+    _ranked_edges: pd.DataFrame | None
+    _numeric_template: _NumericEdgeTemplate | None
+    _order: np.ndarray | None
+    _ranked_statistics: np.ndarray | None
+
+    def __init__(
+        self,
+        sets: list[LensSetResult],
+        metadata: dict[str, Any],
+        ranked_edges: pd.DataFrame,
+    ) -> None:
+        self.sets = sets
+        self.metadata = metadata
+        self._ranked_edges = ranked_edges
+        self._numeric_template = None
+        self._order = None
+        self._ranked_statistics = None
+
+    @classmethod
+    def _from_numeric(
+        cls,
+        sets: list[LensSetResult],
+        metadata: dict[str, Any],
+        template: _NumericEdgeTemplate,
+        order: np.ndarray,
+        ranked_statistics: np.ndarray,
+    ) -> LensStatResult:
+        result = cls.__new__(cls)
+        result.sets = sets
+        result.metadata = metadata
+        result._ranked_edges = None
+        result._numeric_template = template
+        result._order = np.asarray(order, dtype=int)
+        result._ranked_statistics = np.asarray(ranked_statistics, dtype=float)
+        return result
+
+    @property
+    def ranked_edges(self) -> pd.DataFrame:
+        if self._ranked_edges is None:
+            if (
+                self._numeric_template is None
+                or self._order is None
+                or self._ranked_statistics is None
+            ):
+                raise RuntimeError("numeric LENS ranking is incomplete")
+            frame = self._numeric_template.frame.iloc[self._order].copy().reset_index(drop=True)
+            frame["statistic"] = self._ranked_statistics
+            frame.attrs.update(self._numeric_template.frame.attrs)
+            self._ranked_edges = frame
+        return self._ranked_edges
 
     def get(self, set_name: str) -> LensSetResult:
         for item in self.sets:
