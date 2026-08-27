@@ -8,15 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .core import _coerce_edge_statistics
-from .results import EdgeStatistics
-
-
-def _permuted_table(source: EdgeStatistics, indices: np.ndarray) -> pd.DataFrame:
-    columns = ["node1", "node2", "edge_id", "canonical_edge_id"]
-    table = source.table[columns].copy()
-    table["statistic"] = source.table["statistic"].to_numpy(float)[indices]
-    table.attrs.update(source.table.attrs)
-    return table
+from .results import EdgeStatistics, _NumericEdgeTemplate
 
 
 def lens_edge_permute(
@@ -59,6 +51,15 @@ def lens_edge_permute(
         elif current_ids != reference_ids:
             raise ValueError("all contrasts must use the same ordered edge universe")
     assert reference_ids is not None
+    identity_columns = ["node1", "node2", "edge_id", "canonical_edge_id"]
+    reference = next(iter(prepared.values())).table
+    template_frame = reference[identity_columns].copy()
+    template_frame.attrs.update(reference.attrs)
+    numeric_template = _NumericEdgeTemplate(template_frame)
+    statistic_arrays = {
+        name: source.table["statistic"].to_numpy(float, copy=True)
+        for name, source in prepared.items()
+    }
 
     rng = np.random.default_rng(random_state)
     for replicate in range(n_permutations):
@@ -72,5 +73,9 @@ def lens_edge_permute(
                 "permutation_index": replicate,
                 "random_seed": random_state,
             }
-            output[name] = EdgeStatistics(_permuted_table(source, indices), metadata)
+            output[name] = EdgeStatistics._from_numeric(
+                numeric_template,
+                statistic_arrays[name][indices],
+                metadata,
+            )
         yield output if is_mapping else output["__single__"]

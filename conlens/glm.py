@@ -11,7 +11,7 @@ from scipy.linalg import null_space
 
 from .data import _object_vector, canonicalize_edges, validate_connectome
 from .design import Contrast, DesignMatrix
-from .results import EdgeStatistics
+from .results import EdgeStatistics, _NumericEdgeTemplate
 from .stats import _prepare_glm_design, glm_contrast_statistics
 
 
@@ -76,19 +76,8 @@ def _edge_result(
     diagonal: bool,
     include_audit_columns: bool,
     extra_metadata: Mapping[str, Any] | None = None,
+    numeric_template: _NumericEdgeTemplate | None = None,
 ) -> EdgeStatistics:
-    table = template.copy()
-    table["statistic"] = statistics.effect_size
-    if include_audit_columns:
-        table["effect_size"] = statistics.effect_size
-        table["contrast_estimate"] = statistics.contrast_estimate
-        table["standard_error"] = statistics.standard_error
-        table["t_statistic"] = statistics.t_statistic
-        table["residual_df"] = statistics.residual_df
-        table["edge_p_value_two_sided"] = statistics.p_value_two_sided
-        table["residual_sd"] = statistics.residual_sd
-        table["estimable"] = statistics.estimable
-    table.attrs["node_order"] = node_order
     statistic_name = (
         "partial correlation"
         if contrast.effect_size == "partial_r"
@@ -116,6 +105,24 @@ def _edge_result(
         "n_nonestimable_edges": int((~statistics.estimable).sum()),
     }
     metadata.update(extra_metadata or {})
+    if numeric_template is not None and not include_audit_columns:
+        return EdgeStatistics._from_numeric(
+            numeric_template,
+            statistics.effect_size,
+            metadata,
+        )
+    table = template.copy()
+    table["statistic"] = statistics.effect_size
+    if include_audit_columns:
+        table["effect_size"] = statistics.effect_size
+        table["contrast_estimate"] = statistics.contrast_estimate
+        table["standard_error"] = statistics.standard_error
+        table["t_statistic"] = statistics.t_statistic
+        table["residual_df"] = statistics.residual_df
+        table["edge_p_value_two_sided"] = statistics.p_value_two_sided
+        table["residual_sd"] = statistics.residual_sd
+        table["estimable"] = statistics.estimable
+    table.attrs["node_order"] = node_order
     return EdgeStatistics(table=table, metadata=metadata)
 
 
@@ -224,6 +231,7 @@ def lens_fl_permute(
     block_codes = _validate_blocks(exchangeability_blocks, len(data))
     x = design.values
     prepared_design = _prepare_glm_design(x)
+    numeric_template = _NumericEdgeTemplate(template)
     prepared: dict[str, tuple[Contrast, np.ndarray, np.ndarray, np.ndarray]] = {}
     for name, contrast in contrasts.items():
         vector = contrast.resolve(design)
@@ -264,5 +272,6 @@ def lens_fl_permute(
                     "random_seed": random_state,
                     "exchangeability_blocks_used": block_codes is not None,
                 },
+                numeric_template=numeric_template,
             )
         yield output
