@@ -47,6 +47,10 @@ permutation × tested set 的 ES。这正是计算 NES、经验 P 值和画 null
 读取 edge table、保存结果或构造最终 observed 输出时才 materialize DataFrame。这个变化不改变
 排序、running sum、ES、leading edge、NES、P 或 Q 的定义。
 
+若 null effects 由外部模型产生，或同一批 permutations 需要复用于多套 edge sets，也可以用
+`make_null_edge_statistics()` 接入矩阵。默认流式路径没有改变；矩阵用法见
+[外部 observed / null effects](/tutorials/external-effects)。
+
 ## P、NES 与联合 BH
 
 Observed ES 为正时只使用非负 null tail；为负时只使用非正 tail。经验 P 值采用 plus-one：

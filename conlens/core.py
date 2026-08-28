@@ -12,7 +12,13 @@ import numpy as np
 import pandas as pd
 
 from .data import validate_edge_table
-from .results import EdgeStatistics, LensSetResult, LensStatResult, _NumericEdgeTemplate
+from .results import (
+    EdgeStatistics,
+    LensSetResult,
+    LensStatResult,
+    NullEdgeStatistics,
+    _NumericEdgeTemplate,
+)
 from .sets import validate_edge_sets
 
 TOLERANCE = 1e-12
@@ -257,6 +263,94 @@ def make_edge_statistics(
         }
     )
     return result
+
+
+def make_null_edge_statistics(
+    values: np.ndarray | pd.DataFrame,
+    *,
+    reference: EdgeStatistics,
+    permutation_scheme: str,
+    random_state: int | None = None,
+    exchangeability_blocks_used: bool = False,
+) -> NullEdgeStatistics:
+    """Wrap an external edge-by-permutation matrix as a reusable null iterable.
+
+    Rows must follow the ordered edge universe in ``reference``. A DataFrame must
+    use edge IDs as its index and is reordered to the reference before its numeric
+    values are used. Columns represent null replicates.
+    """
+    if not isinstance(reference, EdgeStatistics):
+        raise TypeError("reference must be an EdgeStatistics object")
+    if not isinstance(permutation_scheme, str) or not permutation_scheme.strip():
+        raise ValueError("permutation_scheme must be a non-empty string")
+    if random_state is not None and not isinstance(random_state, int):
+        raise TypeError("random_state must be an integer or None")
+    if not isinstance(exchangeability_blocks_used, bool):
+        raise TypeError("exchangeability_blocks_used must be boolean")
+
+    prepared_reference = _coerce_edge_statistics(reference)
+    reference_table = prepared_reference.table
+    reference_ids = reference_table["edge_id"].astype(str).tolist()
+    if isinstance(values, pd.DataFrame):
+        if not values.index.is_unique:
+            raise ValueError("null edge-statistic DataFrame index must contain unique edge IDs")
+        if not values.columns.is_unique:
+            raise ValueError("null edge-statistic DataFrame columns must be unique")
+        normalized = values.copy()
+        normalized.index = normalized.index.map(str)
+        if not normalized.index.is_unique:
+            raise ValueError(
+                "null edge-statistic DataFrame index is duplicated after string normalization"
+            )
+        supplied = set(normalized.index)
+        expected = set(reference_ids)
+        if supplied != expected:
+            missing = sorted(expected - supplied)
+            unknown = sorted(supplied - expected)
+            raise ValueError(
+                "null edge-statistic DataFrame has an incompatible edge universe "
+                f"(missing={missing!r}, unknown={unknown!r})"
+            )
+        try:
+            matrix = normalized.loc[reference_ids].apply(
+                pd.to_numeric, errors="raise"
+            ).to_numpy(dtype=float, copy=False)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("null edge statistics must be numeric") from exc
+    else:
+        try:
+            matrix = np.asarray(values, dtype=float)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("null edge statistics must be numeric") from exc
+
+    if matrix.ndim != 2:
+        raise ValueError("null edge statistics must have shape (edges, permutations)")
+    if matrix.shape[0] != len(reference_ids):
+        raise ValueError(
+            "null edge-statistic rows must match the reference edge universe "
+            f"({matrix.shape[0]} != {len(reference_ids)})"
+        )
+    if matrix.shape[1] < 1:
+        raise ValueError("null edge statistics must contain at least one permutation")
+    if not np.isfinite(matrix).all():
+        raise ValueError("null edge statistics must contain only finite values")
+
+    identity_columns = ["node1", "node2", "edge_id", "canonical_edge_id"]
+    template_frame = reference_table[identity_columns].copy()
+    template_frame.attrs.update(reference_table.attrs)
+    metadata = {
+        **prepared_reference.metadata,
+        "source": "external_null_effects",
+        "permutation_scheme": permutation_scheme.strip(),
+        "random_seed": random_state,
+        "exchangeability_blocks_used": exchangeability_blocks_used,
+        "n_permutations": int(matrix.shape[1]),
+    }
+    return NullEdgeStatistics(
+        np.asarray(matrix, dtype=float),
+        _NumericEdgeTemplate(template_frame),
+        metadata,
+    )
 
 
 @dataclass(slots=True)

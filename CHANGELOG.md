@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.0 - 2026-08-28
+
+- Added `NullEdgeStatistics` and `make_null_edge_statistics` for externally
+  computed edge-by-permutation matrices.
+- External null matrices use lazy NumPy column views, can be iterated more than
+  once, and plug into the existing `lens_stat` → `lens_enrich` workflow.
+- Added validation for matrix shape, finite numeric values, ordered edge identity,
+  and permutation provenance metadata.
+- Kept the existing on-the-fly GLM, Freedman–Lane, and edge-label permutation APIs
+  unchanged, with exact-equivalence tests between streamed and matrix-backed nulls.
+
 ## 2.0.1 - 2026-08-27
 
 - Replaced the repeated null LENS DataFrame path with a lazy, NumPy-based

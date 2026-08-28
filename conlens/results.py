@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -166,6 +167,41 @@ class EdgeStatistics:
     @classmethod
     def load(cls, path: str | Path) -> EdgeStatistics:
         return cls.from_dict(_load_payload(path))
+
+
+@dataclass(slots=True)
+class NullEdgeStatistics:
+    """Reusable edge-by-permutation statistics backed by one numeric matrix."""
+
+    _values: np.ndarray
+    _template: _NumericEdgeTemplate
+    metadata: dict[str, Any]
+
+    @property
+    def n_edges(self) -> int:
+        return int(self._values.shape[0])
+
+    @property
+    def n_permutations(self) -> int:
+        return int(self._values.shape[1])
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.n_edges, self.n_permutations
+
+    def __len__(self) -> int:
+        return self.n_permutations
+
+    def __iter__(self) -> Iterator[EdgeStatistics]:
+        for replicate in range(self.n_permutations):
+            yield EdgeStatistics._from_numeric(
+                self._template,
+                self._values[:, replicate],
+                {
+                    **self.metadata,
+                    "permutation_index": replicate,
+                },
+            )
 
 
 @dataclass(slots=True)

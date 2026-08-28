@@ -8,6 +8,7 @@ from .core import (
     extract_leading_edges,
     lens_stat,
     make_edge_statistics,
+    make_null_edge_statistics,
     rank_edges,
 )
 from .data import (
@@ -48,6 +49,7 @@ from .results import (
     LensSetResult,
     LensStabilityResult,
     LensStatResult,
+    NullEdgeStatistics,
 )
 from .sets import (
     make_custom_edge_sets,
@@ -68,6 +70,7 @@ __all__ = [
     "LensSetResult",
     "LensStabilityResult",
     "LensStatResult",
+    "NullEdgeStatistics",
     "__version__",
     "adjust_pvalues",
     "build_leading_network",
@@ -89,6 +92,7 @@ __all__ = [
     "make_custom_edge_sets",
     "make_design",
     "make_edge_statistics",
+    "make_null_edge_statistics",
     "make_hemisphere_sets",
     "make_network_pair_sets",
     "make_within_network_sets",

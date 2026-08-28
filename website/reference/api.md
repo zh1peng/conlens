@@ -50,6 +50,7 @@ lens_enrich(
 | 函数 | 说明 |
 | --- | --- |
 | `make_edge_statistics` | 验证外部 signed edge-statistic table |
+| `make_null_edge_statistics` | 验证外部 edge × permutation matrix，并返回可重复迭代的 lazy nulls |
 | `lens_edge_permute` | 流式产生 edge-label null statistics |
 | `lens_stat` | 对 observed/null 使用同一定义计算 ES 和 leading edge |
 | `lens_enrich` | set-size filter、NES、经验 P、joint BH，并保留 set-level null ES |
@@ -66,6 +67,7 @@ lens_enrich(
 | 对象/函数 | 说明 |
 | --- | --- |
 | `EdgeStatistics` | 边表 + 模型与方向 metadata |
+| `NullEdgeStatistics` | 外部 null matrix 的可重复迭代 column-view 包装 |
 | `LensStatResult` | 确定性 LENS statistics |
 | `LensResult` | 单 contrast 的 observed + null inference |
 | `GLMResult` | 多 contrast 的联合 BH family |

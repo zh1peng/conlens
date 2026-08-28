@@ -22,10 +22,11 @@ the edge universe with neutral statistics and `estimable=False`.
 
 ## LENS and inference
 
-`make_edge_statistics` validates external signed statistics. `lens_edge_permute` streams
-edge-label nulls, `lens_stat` computes the same deterministic statistic for observed and null
-inputs, and `lens_enrich` applies size filters, normalization, empirical P values, and joint BH.
-The low-level pure functions are `rank_edges`, `compute_running_sum`,
+`make_edge_statistics` validates external signed statistics. `make_null_edge_statistics` wraps an
+external edge-by-permutation matrix as reusable lazy `NullEdgeStatistics`. `lens_edge_permute`
+streams edge-label nulls, `lens_stat` computes the same deterministic statistic for observed and
+null inputs, and `lens_enrich` applies size filters, normalization, empirical P values, and joint
+BH. The low-level pure functions are `rank_edges`, `compute_running_sum`,
 `compute_enrichment_score`, `extract_leading_edges`, and `adjust_pvalues`.
 
 ## Results, comparison, and stability

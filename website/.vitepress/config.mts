@@ -62,6 +62,7 @@ export default defineConfig({
               { text: 'Design、contrast 与效应量', link: '/tutorials/design-and-contrasts' },
               { text: 'Bootstrap 稳定性', link: '/tutorials/stability' },
               { text: '只有 edge statistics 时', link: '/tutorials/edge-statistics' },
+              { text: '外部 observed / null effects', link: '/tutorials/external-effects' },
               { text: '可视化', link: '/tutorials/visualization' },
             ],
           },
