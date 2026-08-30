@@ -8,6 +8,10 @@ The loader verifies resource checksums and exact atlas node order. GitHub branch
 resolved internally to a commit SHA and recorded in provenance; no client or revision argument is
 required.
 
+For complete parameter semantics, an explanation of `connect="within" / "touching" / "between"`,
+a PET top-10% / top-20% worked example, and the distance and profile-similarity alternatives, see
+[Building edge sets from node maps](/en/tutorials/map-based-edge-sets).
+
 ```python
 from conlens import load_maps
 

@@ -25,6 +25,9 @@ the edge universe with neutral statistics and `estimable=False`.
 node values, within-map node distances, or multi-map node-profile similarity. `EdgeSets` behaves as
 a regular mapping and retains construction provenance and an audit table.
 
+See [Building edge sets from node maps](/en/tutorials/map-based-edge-sets) for complete signatures,
+parameter directions, `connect` semantics, threshold rules, scaling choices, and worked examples.
+
 ## LENS and inference
 
 `make_edge_statistics` validates external signed statistics. `make_null_edge_statistics` wraps an

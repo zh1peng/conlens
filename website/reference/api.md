@@ -32,6 +32,16 @@
 | `make_profile_similarity_sets` | 从多 map node-profile similarity 构建 sets |
 | `EdgeSets` | Mapping-compatible、带 provenance 与 audit 的 edge sets |
 
+Map-based builders 的完整签名、参数语义和选择方向见
+[从 node maps 构建 edge sets](/tutorials/map-based-edge-sets)。特别注意：
+
+- `make_node_value_sets` 在 `fraction`、`n_nodes`、`cutoff` 中只接受一个；`connect` 可为
+  `"within"`、`"touching"` 或 `"between"`；
+- `make_node_distance_sets` 在 `edge_fraction`、`cutoff` 中只接受一个，支持
+  `keep="closest" / "farthest"` 和 `value_scale="raw" / "rank"`；
+- `make_profile_similarity_sets` 在 `edge_fraction`、`cutoff` 中只接受一个，支持 Pearson、cosine
+  和 Euclidean metric，以及 `map_scaling="none" / "zscore"`。
+
 ## LENS 与推断
 
 ```python

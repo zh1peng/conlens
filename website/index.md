@@ -26,6 +26,7 @@ leading edges 还原为网络。它不先按 edge-wise P 值筛边，也不把 l
 
 - 第一次使用：先读[五分钟快速开始](/guide/quick-start)。
 - 要建立 age、诊断组和协变量模型：看[Design、contrast 与效应量](/tutorials/design-and-contrasts)。
+- 要从 PET 或其他 node maps 定义 edge sets：看[从 node maps 构建 edge sets](/tutorials/map-based-edge-sets)。
 - 想知道 null 如何生成和为何不会占满内存：看[Permutation 与推断](/guide/inference)。
 - 要画 connectome heatmap、富集 heatmap、running sum 或 circos：看[可视化](/tutorials/visualization)。
 - 要评估结果对受试者抽样的敏感性：看[Bootstrap 稳定性](/tutorials/stability)。

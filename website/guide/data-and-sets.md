@@ -31,6 +31,10 @@ edge_sets = make_network_pair_sets(edges, node_networks)
 
 ## 从 node maps 构建 edge sets
 
+完整的参数解释、`connect="within" / "touching" / "between"` 图解、PET top-10% / top-20%
+实例，以及 node distance 和 profile similarity 两种方法，见
+[从 node maps 构建 edge sets](/tutorials/map-based-edge-sets)。
+
 `load_maps` 从本地目录或远程 ConLens resource repository 读取 node maps，并验证
 resource checksum、atlas node count 和 canonical node order。GitHub branch/tag 会在内部解析为
 具体 commit SHA 并写入 provenance，不需要用户额外提供 client 或 revision 参数。返回的

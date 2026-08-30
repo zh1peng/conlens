@@ -59,6 +59,7 @@ export default defineConfig({
           {
             text: '分析教程',
             items: [
+              { text: '从 node maps 构建 edge sets', link: '/tutorials/map-based-edge-sets' },
               { text: 'Design、contrast 与效应量', link: '/tutorials/design-and-contrasts' },
               { text: 'Bootstrap 稳定性', link: '/tutorials/stability' },
               { text: '只有 edge statistics 时', link: '/tutorials/edge-statistics' },
