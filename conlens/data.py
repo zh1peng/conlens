@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -9,6 +11,49 @@ import numpy as np
 import pandas as pd
 
 REQUIRED_EDGE_COLUMNS = ("node1", "node2", "statistic")
+
+
+def _edge_universe_hash(edges: pd.DataFrame) -> str:
+    """Hash the normalized edge IDs in an edge universe."""
+    if "edge_id" not in edges:
+        raise ValueError("edge universe must contain edge_id")
+    payload = json.dumps(
+        sorted(edges["edge_id"].astype(str).tolist()),
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _identity_value(value: Any) -> dict[str, str]:
+    if isinstance(value, np.generic):
+        value = value.item()
+    return {
+        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+        "value": repr(value),
+    }
+
+
+def _edge_identity_hash(edges: pd.DataFrame) -> str:
+    """Hash edge IDs and typed endpoint identities without lexical coercion."""
+    required = {"edge_id", "node1", "node2"}
+    missing = required - set(edges.columns)
+    if missing:
+        raise ValueError(f"edge universe is missing identity columns: {sorted(missing)!r}")
+    directed = bool(edges.attrs.get("directed", False))
+    records = []
+    for row in edges[["edge_id", "node1", "node2"]].sort_values("edge_id").itertuples(
+        index=False
+    ):
+        endpoints = [_identity_value(row.node1), _identity_value(row.node2)]
+        if not directed:
+            endpoints.sort(key=lambda item: json.dumps(item, sort_keys=True))
+        records.append({"edge_id": str(row.edge_id), "endpoints": endpoints})
+    payload = json.dumps(
+        {"directed": directed, "edges": records},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _object_vector(values: Sequence[Any]) -> np.ndarray:

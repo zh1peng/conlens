@@ -26,6 +26,11 @@
 | `make_within_network_sets` | 只构建 within-network sets |
 | `make_hemisphere_sets` | 按半球标签构建 sets |
 | `make_custom_edge_sets` / `validate_edge_sets` | 构建或校验自定义 sets |
+| `load_maps` / `NodeMaps` | 加载并验证 atlas-aligned node maps |
+| `make_node_value_sets` | 从高值/低值 nodes 及其连接关系构建 sets |
+| `make_node_distance_sets` | 从单一 map 上的 node-value distance 构建 sets |
+| `make_profile_similarity_sets` | 从多 map node-profile similarity 构建 sets |
+| `EdgeSets` | Mapping-compatible、带 provenance 与 audit 的 edge sets |
 
 ## LENS 与推断
 

@@ -5,13 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from .data import validate_edge_table
+from .data import _edge_identity_hash, _edge_universe_hash, validate_edge_table
 from .results import (
     EdgeStatistics,
     LensSetResult,
@@ -404,7 +405,8 @@ def _numeric_plan(
             for name, members in sets.items()
         },
         identity_metadata={
-            "edge_universe_hash": _hash_payload(sorted(universe)),
+            "edge_universe_hash": _edge_universe_hash(frame),
+            "edge_identity_hash": _edge_identity_hash(frame),
             "edge_mapping_hash": _hash_payload(edge_mapping),
             "node_identity_hash": _node_identity_hash(frame, metadata),
             "edge_universe_size": len(universe),
@@ -646,7 +648,8 @@ def _lens_stat_one(
     edge_mapping = ranked[["edge_id", canonical_column]].sort_values("edge_id").to_dict("records")
     metadata = {
         **prepared.metadata,
-        "edge_universe_hash": _hash_payload(sorted(universe)),
+        "edge_universe_hash": _edge_universe_hash(ranked),
+        "edge_identity_hash": _edge_identity_hash(ranked),
         "edge_mapping_hash": _hash_payload(edge_mapping),
         "node_identity_hash": _node_identity_hash(ranked, prepared.metadata),
         "edge_universe_size": len(universe),
@@ -660,6 +663,21 @@ def _lens_stat_one(
     return LensStatResult(output, metadata, ranked)
 
 
+def _attach_edge_set_construction(
+    result: LensStatResult,
+    edge_set_info: Mapping[str, Any],
+) -> None:
+    for key in ("edge_universe_hash", "edge_identity_hash"):
+        expected = edge_set_info.get(key)
+        observed = result.metadata.get(key)
+        if expected is not None and expected != observed:
+            raise ValueError(
+                "edge sets were built for a different edge universe "
+                f"({key}: {expected!r} != {observed!r})"
+            )
+    result.metadata["edge_set_construction"] = deepcopy(dict(edge_set_info))
+
+
 def lens_stat(
     edge_statistics: EdgeStatistics | pd.DataFrame | Mapping[str, EdgeStatistics],
     edge_sets: Mapping[str, Iterable[str]],
@@ -670,10 +688,11 @@ def lens_stat(
     store_running_sum: bool = False,
 ) -> LensStatResult | dict[str, LensStatResult]:
     """Calculate the same deterministic LENS statistics for observed or null edges."""
+    edge_set_info = getattr(edge_sets, "info", None)
     if isinstance(edge_statistics, Mapping) and not isinstance(edge_statistics, pd.DataFrame):
         if not edge_statistics:
             raise ValueError("edge_statistics mapping cannot be empty")
-        return {
+        results = {
             str(name): _lens_stat_one(
                 item,
                 edge_sets,
@@ -684,7 +703,11 @@ def lens_stat(
             )
             for name, item in edge_statistics.items()
         }
-    return _lens_stat_one(
+        if isinstance(edge_set_info, Mapping):
+            for result in results.values():
+                _attach_edge_set_construction(result, edge_set_info)
+        return results
+    result = _lens_stat_one(
         edge_statistics,
         edge_sets,
         positive_direction=positive_direction,
@@ -692,3 +715,6 @@ def lens_stat(
         score_type=score_type,
         store_running_sum=store_running_sum,
     )
+    if isinstance(edge_set_info, Mapping):
+        _attach_edge_set_construction(result, edge_set_info)
+    return result

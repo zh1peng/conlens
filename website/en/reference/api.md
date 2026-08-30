@@ -20,6 +20,11 @@ the edge universe with neutral statistics and `estimable=False`.
 `make_within_network_sets`, `make_hemisphere_sets`, or `make_custom_edge_sets` to build sets;
 `validate_edge_sets` validates an existing mapping.
 
+`load_maps` returns verified, atlas-aligned `NodeMaps`. `make_node_value_sets`,
+`make_node_distance_sets`, and `make_profile_similarity_sets` construct map-based `EdgeSets` from
+node values, within-map node distances, or multi-map node-profile similarity. `EdgeSets` behaves as
+a regular mapping and retains construction provenance and an audit table.
+
 ## LENS and inference
 
 `make_edge_statistics` validates external signed statistics. `make_null_edge_statistics` wraps an

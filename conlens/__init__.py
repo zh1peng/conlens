@@ -41,6 +41,7 @@ from .plotting import (
     plot_running_sum,
     plot_stability,
 )
+from .resources import NodeMaps, load_maps
 from .results import (
     EdgeStatistics,
     GLMResult,
@@ -52,9 +53,13 @@ from .results import (
     NullEdgeStatistics,
 )
 from .sets import (
+    EdgeSets,
     make_custom_edge_sets,
     make_hemisphere_sets,
     make_network_pair_sets,
+    make_node_distance_sets,
+    make_node_value_sets,
+    make_profile_similarity_sets,
     make_within_network_sets,
     validate_edge_sets,
 )
@@ -64,6 +69,7 @@ __all__ = [
     "Contrast",
     "DesignMatrix",
     "EdgeStatistics",
+    "EdgeSets",
     "GLMResult",
     "LeadingNetwork",
     "LensResult",
@@ -71,6 +77,7 @@ __all__ = [
     "LensStabilityResult",
     "LensStatResult",
     "NullEdgeStatistics",
+    "NodeMaps",
     "__version__",
     "adjust_pvalues",
     "build_leading_network",
@@ -89,12 +96,16 @@ __all__ = [
     "lens_fl_permute",
     "lens_glm",
     "lens_stat",
+    "load_maps",
     "make_custom_edge_sets",
     "make_design",
     "make_edge_statistics",
     "make_null_edge_statistics",
     "make_hemisphere_sets",
+    "make_node_distance_sets",
+    "make_node_value_sets",
     "make_network_pair_sets",
+    "make_profile_similarity_sets",
     "make_within_network_sets",
     "matrix_to_edges",
     "plot_circos",

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.0 - 2026-08-30
+
+- Added verified local/remote loading of atlas-aligned node maps with `load_maps`.
+- Added `make_node_value_sets`, `make_node_distance_sets`, and
+  `make_profile_similarity_sets` for three explicit map-based edge-set definitions.
+- Added serializable, Mapping-compatible `EdgeSets` with construction provenance and
+  selection audits.
+- Pinned GitHub map sources to resolved commits, hardened checksum-backed cache paths,
+  made score ties independent of custom edge IDs, and reject cross-universe `EdgeSets`.
+
 ## 2.1.0 - 2026-08-28
 
 - Added `NullEdgeStatistics` and `make_null_edge_statistics` for externally
