@@ -1,6 +1,6 @@
-# 从 node maps 构建 edge sets
+# 根据脑区注释构建边集合
 
-ConLens 2.2.0 提供三种 map-based builder。它们回答的是三个不同问题：
+ConLens 自 2.2.0 起提供三种 map-based builder。它们回答的是三个不同问题：
 
 | 研究问题 | API | 先选择什么 |
 | --- | --- | --- |
@@ -27,7 +27,7 @@ from conlens import load_maps
 pet_maps = load_maps(
     "pet/receptor-react",
     atlas="schaefer200-7net",
-    source=r"E:\03_tools\conlens-resources",
+    source="./conlens-resources",
 )
 ```
 
@@ -79,7 +79,7 @@ edges = matrix_to_edges(
 ```
 
 这里的零矩阵只用于定义“哪些边可能进入集合”，数值 0 不参与 map-based selection。对于完整无向
-图，候选边数为 \(N(N-1)/2\)：
+图，候选边数为 $N(N-1)/2$：
 
 | Atlas | 节点数 | 候选边数 |
 | --- | ---: | ---: |
@@ -110,7 +110,7 @@ pet_top20 = make_node_value_sets(
 ```
 
 一次调用会对每个 PET map 分别排序、选择节点并创建一个 edge set。因此 19 个 maps 会返回 19 个
-独立集合，而不是合并为一个集合：
+集合；不同集合可能重叠，检验结果也可能相关，而不是合并为一个集合：
 
 ```python
 pet_top20.names
@@ -143,11 +143,11 @@ pet_top10 = make_node_value_sets(
 | --- | --- | --- |
 | `fraction` | 保留有效节点的一定比例，数量用 `ceil` 向上取整 | `fraction=0.20` |
 | `n_nodes` | 保留固定数量的节点 | `n_nodes=40` |
-| `cutoff` | 按实际 map value 卡阈值 | `cutoff=0.75` |
+| `cutoff` | 按注释值的指定阈值选择脑区 | `cutoff=0.75` |
 
-使用 `cutoff` 时，`keep="highest"` 保留 \(x_i\ge c\)，`keep="lowest"` 保留
-\(x_i\le c\)。Fraction 或固定数量在边界出现并列时，按 map 中固定的 atlas node order
-确定性打破 tie；cutoff 则会保留所有满足阈值的节点，因此可能保留整个并列组。
+使用 `cutoff` 时，`keep="highest"` 保留 $x_i\ge c$，`keep="lowest"` 保留
+$x_i\le c$。Fraction 或固定数量在边界出现并列时，按 map 中固定的 atlas node order
+按预先固定的节点顺序选择；cutoff 则会保留所有满足阈值的节点，因此可能保留整个并列组。
 
 `map_names` 控制要处理哪些 columns；省略时处理全部 maps。`name_prefix="pet-top20"` 可把返回的
 集合命名为 `pet-top20:D1` 等，适合同时保存多个定义。
@@ -160,14 +160,14 @@ edge universe。
 
 ### `connect` 到底控制什么
 
-先令 \(S\) 为选中的节点集合。`connect` 决定一条候选边的端点与 \(S\) 具有何种关系时才进入
+先令 $S$ 为选中的节点集合。`connect` 决定一条候选边的端点与 $S$ 具有何种关系时才进入
 edge set：
 
 | `connect` | 端点规则 | 直观含义 |
 | --- | --- | --- |
-| `"within"` | 两个端点都在 \(S\) | 选中节点内部的边 |
-| `"touching"` | 至少一个端点在 \(S\) | 所有接触选中节点的边 |
-| `"between"` | 恰好一个端点在 \(S\) | 选中与未选中节点之间的边 |
+| `"within"` | 两个端点都在 $S$ | 选中节点内部的边 |
+| `"touching"` | 至少一个端点在 $S$ | 所有接触选中节点的边 |
+| `"between"` | 恰好一个端点在 $S$ | 选中与未选中节点之间的边 |
 
 例如节点为 `A, B, C, D`，选中的节点为 `A, B`：
 
@@ -177,17 +177,17 @@ edge set：
 | A–C、A–D、B–C、B–D |  | ✓ | ✓ |
 | C–D |  |  |  |
 
-因此 `touching` 是 `within` 与 `between` 的并集。对于 \(N\) 个节点、选中 \(k\) 个节点的
+因此 `touching` 是 `within` 与 `between` 的并集。对于 $N$ 个节点、选中 $k$ 个节点的
 完整无向、无自连接 universe：
 
-\[
+$$
 |E_{within}|=\frac{k(k-1)}{2},\qquad
 |E_{between}|=k(N-k)
-\]
+$$
 
-\[
+$$
 |E_{touching}|=\frac{N(N-1)}{2}-\frac{(N-k)(N-k-1)}{2}
-\]
+$$
 
 这些公式只适用于完整无向 universe。输入是稀疏、有向或包含 diagonal 的 edge table 时，应直接
 检查返回集合的长度，而不要套用公式。
@@ -211,7 +211,7 @@ PET abundance 通常使用 `connect="within"`，因为问题是“高 abundance 
 | Schaefer300 | top 10% | 30 | 435 |
 | Schaefer300 | top 20% | 60 | 1,770 |
 
-建议在正式分析脚本中保留几个可执行的 sanity checks：
+建议在正式分析脚本中保留以下可执行检查，核对节点数、边数与集合成员：
 
 ```python
 assert len(pet_maps.names) == 19
@@ -234,9 +234,9 @@ universe，节点数仍为 40，但实际入选边数可能小于 780。
 有时问题不是“哪些节点的值高”，而是“一条边两端的 annotation 是否接近”。对于单个 scalar map，
 ConLens 为每条候选边计算绝对差：
 
-\[
+$$
 d_{ij}=|x_i-x_j|
-\]
+$$
 
 例如选择 D1 abundance 最接近的 10% edges：
 
@@ -271,12 +271,12 @@ d1_far = make_node_distance_sets(
 | --- | --- |
 | `keep` | `"closest"` 选择较小距离；`"farthest"` 选择较大距离 |
 | `edge_fraction` | 保留候选边的一定比例，数量用 `ceil` |
-| `cutoff` | 直接按 distance 卡阈值；与 `edge_fraction` 二选一 |
+| `cutoff` | 按距离的指定阈值选择边；与 `edge_fraction` 二选一 |
 | `value_scale` | `"raw"` 用原始值；`"rank"` 先转成 percentile rank 再计算差值 |
 | `missing` | `"raise"` 遇到缺失值报错；`"omit"` 排除端点含缺失值的边 |
 | `name` | 覆盖默认集合名 `<map_name>:<keep>` |
 
-用 cutoff 时，`closest` 保留 \(d_{ij}\le c\)，`farthest` 保留 \(d_{ij}\ge c\)。
+用 cutoff 时，`closest` 保留 $d_{ij}\le c$，`farthest` 保留 $d_{ij}\ge c$。
 `value_scale="rank"` 关注节点在 map 中的相对次序，减少原始单位和极端值的影响，但它改变了
 科学定义，不应仅为了得到更多显著结果而切换。
 
@@ -285,8 +285,8 @@ d1_far = make_node_distance_sets(
 
 ## 方法三：按多 map node profile 的 similarity 选边
 
-当每个节点都有多个 annotation 时，可把节点 \(i\) 表示为 profile
-\(\mathbf{x}_i=(x_{i1},\ldots,x_{im})\)，再比较每条边两端的 profile：
+当每个节点都有多个 annotation 时，可把节点 $i$ 表示为 profile
+$\mathbf{x}_i=(x_{i1},\ldots,x_{im})$，再比较每条边两端的 profile：
 
 ```python
 from conlens import make_profile_similarity_sets
@@ -310,9 +310,9 @@ pet_profile = make_profile_similarity_sets(
 
 | `metric` | 分数 | `most_similar` | `least_similar` |
 | --- | --- | --- | --- |
-| `"pearson"` | profile Pearson \(r\) | 分数大；cutoff 时 \(r\ge c\) | 分数小；\(r\le c\) |
-| `"cosine"` | cosine similarity | 分数大；\(s\ge c\) | 分数小；\(s\le c\) |
-| `"euclidean"` | Euclidean distance | 距离小；\(d\le c\) | 距离大；\(d\ge c\) |
+| `"pearson"` | profile Pearson $r$ | 分数大；cutoff 时 $r\ge c$ | 分数小；$r\le c$ |
+| `"cosine"` | cosine similarity | 分数大；$s\ge c$ | 分数小；$s\le c$ |
+| `"euclidean"` | Euclidean distance | 距离小；$d\le c$ | 距离大；$d\ge c$ |
 
 必须在 `edge_fraction` 与 `cutoff` 中提供且只提供一个。`pearson` 和 `cosine` cutoff 必须位于
 [-1, 1]；Euclidean cutoff 必须非负。Profile similarity 至少需要两个 maps，且目前不接受缺失值。
@@ -333,7 +333,7 @@ pet_profile = make_profile_similarity_sets(
 | --- | --- |
 | 高（或低）annotation 节点内部/周边的连接形成一个集合 | node values + `connect` |
 | 单个 annotation 值相似（homophily）或形成强梯度的节点对构成集合 | node distance |
-| 多个 annotations 的整体组成相似或互补的节点对构成集合 | profile similarity |
+| 多个 annotations 的整体组成相似或差异较大的节点对构成集合 | profile similarity |
 
 这三种定义没有默认的优劣。应在查看 LENS 结果之前，根据研究假设预先指定方法、方向、比例或阈值、
 scaling，以及 edge universe。对多个阈值做敏感性分析时，应把每个定义清楚命名并报告完整 family。
@@ -439,3 +439,9 @@ make_profile_similarity_sets(
 所有 fraction-based selection 都使用 `ceil`。Node selection 的 tie 按 map node order 打破；
 edge selection 的 tie 按 canonical edge ID 打破。这些规则和 provenance 都由 API 内部保存，
 不需要增加额外参数。
+
+## 集合大小与推断
+
+Schaefer200 的最高 20% 节点有 40 个，它们之间的完整无向连接有 780 条。`max_size=None`（默认）不会因此过滤该集合；若设为 500，则集合状态为 filtered，不能解释为未显著。不同注释分别构建的集合可能重叠，检验结果也可能相关。D1 高注释脑区间的富集不证明 D1 直接导致了连接变化。
+
+无需下载 PET 的运行检查见 `examples/teaching_workflow.py` 的模拟 annotation：8 个节点选择最高一半，产生 6 条边并核对进入检验。该注释是模拟数值，不能用于分子科学结论。

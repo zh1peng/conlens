@@ -1,6 +1,6 @@
 # Python API
 
-## Design 与 edge-wise model
+## 设计矩阵与逐边模型
 
 | 函数 | 返回 | 用途 |
 | --- | --- | --- |
@@ -11,9 +11,7 @@
 | `lens_fl_permute(..., n_permutations=, ...)` | iterator | 流式产生 FL null edge effects |
 
 `effect_size` 只接受 `"partial_r"` 或 `"hedges_g"`。
-`lens_glm` 直接从三维 connectome 提取边矩阵，不会构造 subjects × edges 的长表。若某条边的
-残差方差为零，该边保留在统一 edge universe 中，但返回中性统计量（effect/t 为 0、P 为 1），
-且 audit 列 `estimable=False`。
+`lens_glm` 返回完整审计表。恒定、全零或数值上完全拟合的边标记 `estimable=False`，metadata 的 `nonestimable_edge_ids` 列出具体边。effect/t=0、P=1 仅作占位，`lens_stat` 会拒绝将带这些标记的输入用于排序。有效边范围政策见[推断说明](/guide/inference)。
 
 ## 数据与 edge sets
 
@@ -30,7 +28,7 @@
 | `make_node_value_sets` | 从高值/低值 nodes 及其连接关系构建 sets |
 | `make_node_distance_sets` | 从单一 map 上的 node-value distance 构建 sets |
 | `make_profile_similarity_sets` | 从多 map node-profile similarity 构建 sets |
-| `EdgeSets` | Mapping-compatible、带 provenance 与 audit 的 edge sets |
+| `EdgeSets` | 可按字典读取的边集合，保存构建参数、来源与选择记录 |
 
 Map-based builders 的完整签名、参数语义和选择方向见
 [从 node maps 构建 edge sets](/tutorials/map-based-edge-sets)。特别注意：
@@ -131,3 +129,5 @@ lens_bootstrap(
 - `plot_leading_adjacency`
 - `plot_node_participation`
 - `plot_stability`
+
+`LensSetResult` 的 `n_null_zero` 和 `n_null_tail` 分别记录零 ES 数和实际检验尾部数量。`LensStabilityResult.observed_reference` 保存完整观测参照并随 JSON 导出；metadata 保存实际种子与抽样索引，详见[稳定性](/tutorials/stability)。旧稳定性文件可读取，缺少的参照字段为 `None`。

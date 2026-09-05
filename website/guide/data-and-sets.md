@@ -1,6 +1,43 @@
-# 数据与 edge sets
+# 准备连接矩阵、表型与边集合
 
-## Connectomes
+先确定受试者和图谱顺序，再建立设计矩阵与边集合。样本量相等不能证明连接矩阵第 i 行与表型第 i 行属于同一人。
+
+## 以受试者 ID 对齐
+
+准备影像清单 `manifest.csv`（`subject_id,matrix_path,included,exclusion_reason`）、表型表 `phenotypes.csv`（`subject_id` 与模型变量），以及具有固定顺序的图谱节点表。`included` 必须是明确的布尔值；排除受试者要记录理由。ID 在读取时按字符串保存，避免丢失前导零。
+
+以下为仓库中经测试的对齐函数；从影像清单的同一顺序加载矩阵并选择表型，不分别排序后只比较行数。
+
+```python
+import numpy as np
+import pandas as pd
+```
+
+<<< ../../examples/align_subjects.py#alignment
+
+```python
+from conlens import make_design
+
+manifest = pd.read_csv("manifest.csv", dtype={"subject_id": str})
+phenotypes = pd.read_csv("phenotypes.csv", dtype={"subject_id": str})
+nodes = pd.read_csv("atlas_nodes.csv", dtype={"node_id": str})
+node_labels = nodes["node_id"].tolist()
+connectomes, aligned, exclusions, unused = align_subjects(manifest, phenotypes, node_labels)
+if aligned[["age", "motion"]].isna().any().any():
+    raise ValueError("resolve missing model variables before analysis")
+design = make_design(continuous={"age": aligned["age"], "motion": aligned["motion"]})
+aligned[["subject_id"]].to_csv("analysis-subject-order.csv", index=False)
+exclusions.to_csv("analysis-exclusions.csv", index=False)
+unused.to_csv("unused-phenotype-rows.csv", index=False)
+```
+
+矩阵文件还必须来自相同图谱、相同节点顺序。数组自身无法识别标签语义错配，节点数检查不能替代上游图谱核对。不要把缺失或测量失败编码成零；恒定或退化边的政策见[推断说明](/guide/inference)。
+
+## 最小分析记录
+
+保存最终去标识化受试者顺序或其指纹、排除理由、图谱节点顺序和集合定义；记录模型变量、对比、中心化、固定边范围、重采样分组及种子、评分和大小限制、检验家族、源码提交和软件版本。结果 metadata 已包含设计与连接数据指纹、节点和边集合身份、数值依赖版本及推断设置；这些指纹用于复核输入一致性，不能证明受试者配对本身正确。源码提交请在分析时另存 `git rev-parse HEAD`，有本地修改时一并保存修改内容。
+
+## 连接矩阵
 
 `lens_glm` 接受 `(subjects, nodes, nodes)` 数组。无向矩阵必须对称；默认排除对角线。
 `node_labels` 决定稳定的节点顺序和 canonical edge IDs，例如 `0--1`。外部表也至少需要
@@ -18,7 +55,7 @@ bootstrap 或 null 结果把同名边错误地映射到不同端点。
 ConLens 还会把 node labels/order、directed/diagonal 设定和实际端点写入 identity hash。
 null inference、结果比较和 stability 汇总都会核对它，而不是只比较看起来相同的 `0--1`。
 
-## Network-pair sets
+## 网络内与网络间集合
 
 ```python
 from conlens import make_network_pair_sets
@@ -29,7 +66,7 @@ edge_sets = make_network_pair_sets(edges, node_networks)
 无向集合名形如 `DMN--FPN`，有向集合名形如 `DMN->FPN`。也可用
 `make_custom_edge_sets`、`make_within_network_sets` 或 `make_hemisphere_sets`。
 
-## 从 node maps 构建 edge sets
+## 根据脑区注释构建边集合
 
 完整的参数解释、`connect="within" / "touching" / "between"` 图解、PET top-10% / top-20%
 实例，以及 node distance 和 profile similarity 两种方法，见
@@ -46,7 +83,7 @@ from conlens import load_maps
 pet = load_maps(
     "pet/receptor-react",
     atlas="schaefer200-7net",
-    source=r"E:\03_tools\conlens-resources",
+    source="./conlens-resources",
 )
 
 d1 = pet["D1"]

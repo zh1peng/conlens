@@ -230,6 +230,8 @@ class LensSetResult:
     n_more_extreme: int | None = None
     n_null_positive: int | None = None
     n_null_negative: int | None = None
+    n_null_zero: int | None = None
+    n_null_tail: int | None = None
     n_permutations: int | None = None
     minimum_resolvable_p: float | None = None
     p_value_method: str | None = None
@@ -484,6 +486,7 @@ class LensStabilityResult:
     edge_summary: pd.DataFrame
     replicate_summary: pd.DataFrame
     metadata: dict[str, Any]
+    observed_reference: LensResult | None = None
 
     def get_set(self, set_name: str) -> pd.Series:
         selected = self.set_summary[self.set_summary["set_name"] == set_name]
@@ -502,6 +505,9 @@ class LensStabilityResult:
                 edge_summary=self.edge_summary,
                 replicate_summary=self.replicate_summary,
                 metadata=self.metadata,
+                observed_reference=(
+                    None if self.observed_reference is None else self.observed_reference.to_dict()
+                ),
             )
         )
 
@@ -514,6 +520,10 @@ class LensStabilityResult:
             edge_summary=data["edge_summary"],
             replicate_summary=data["replicate_summary"],
             metadata=data["metadata"],
+            observed_reference=(
+                None if data.get("observed_reference") is None
+                else LensResult.from_dict(data["observed_reference"])
+            ),
         )
 
     def save(self, path: str | Path) -> Path:

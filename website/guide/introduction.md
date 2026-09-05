@@ -1,23 +1,19 @@
-# LENS 吃进去的是什么
+# LENS 适合回答什么问题
 
-LENS 本身只需要三样东西：固定的 edge universe、每条边的有符号统计量，以及事先定义的
-edge sets。统计量越大，边越靠近排序顶部；越负，越靠近底部。`positive_direction` 必须写清楚，
-否则正负方向没有科学含义。
+LENS 检验预先定义的连接集合在完整关联排序中是否出现富集。它适合研究网络内、网络间或脑区注释所定义的连接集合，不要求先挑选逐边显著的连接。
 
-## 三层数据，不要混在一起
+## 完整排序与富集分数
 
-1. `EdgeStatistics`：一行一条边，保存 signed statistic、端点和模型来源。
-2. `LensStatResult`：对某个完整边排序计算 ES、running sum 和 leading edge；observed 与 null
-   使用完全相同的 `lens_stat`。
-3. `LensResult`：`lens_enrich` 加入 set-size filter、null normalization、经验 P 值和 BH q 值。
+分析需要固定的有效边范围、每条边的有符号统计量，以及事先定义的边集合。仅包含显著边的表缺少排序背景，不能直接作为输入。`positive_direction` 说明正统计量代表什么，例如“调整年龄后的患者组高于对照组”。
 
-这三层的分工是刻意的。`lens_glm` 不知道 edge sets；`lens_stat` 不知道某次输入是 observed
-还是 null；`lens_enrich` 不拟合模型，也不生成 permutation。
+LENS 从大到小排列全部有效边。对于某个集合，算法沿排序计算累积曲线：遇到集合成员时上升，遇到其他边时下降。集合外的边因此也参与计算。
 
-## 两种起点
+成员集中在排序较高的一端时，曲线通常出现较大的正向偏离；集中在较低的一端时，通常出现较大的负向偏离。标准模式选择绝对值更大的偏离作为 ES。绝对值并列时 ES=0，方向不明确。完整定义见[方法说明](/guide/inference)。
 
-有个体 connectomes 时，用 `make_design`、`Contrast` 和 `lens_glm` 得到边统计量；对应的 null
-由 `lens_fl_permute` 生成。只有汇总边统计量时，用 `make_edge_statistics`，必要时采用
-`lens_edge_permute`。后一种 null 不保留受试者层面的协方差、空间和拓扑依赖，因此解释更受限。
+正 ES 表示相对排序位置较高，不保证成员全部具有正效应。改变集合外信号也可能改变目标集合的 ES 和 P 值。因此，集合富集检验不能直接解释成“集合内所有系数是否为零”的检验。
 
-下一步可直接进入[快速开始](/guide/quick-start)，或者先了解[数据与 edge sets](/guide/data-and-sets)。
+## 选择分析入口
+
+有个体连接矩阵时，先用 GLM 估计关联，再在符合研究设计的残差置换下评估富集。只有汇总观测统计量时，可以完成描述性排序与定位；显著性推断还需要适当的外部零分布。边标签置换是另一个需要明确选择的零模型，适用范围见[置换与推断](/guide/inference)。
+
+接下来[安装软件](/guide/installation)，然后[运行第一个分析](/guide/quick-start)。对象结构和完整参数见 [Python API](/reference/api)。

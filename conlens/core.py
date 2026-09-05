@@ -586,6 +586,12 @@ def _lens_stat_one(
     store_running_sum: bool,
 ) -> LensStatResult:
     if isinstance(edge_statistics, EdgeStatistics):
+        if edge_statistics.metadata.get("n_nonestimable_edges", 0):
+            raise ValueError(
+                "nonestimable edges cannot enter LENS ranking; inspect GLM audit table and "
+                "nonestimable_edge_ids, resolve degenerate measurements before inference: "
+                f"{edge_statistics.metadata.get('nonestimable_edge_ids', [])}"
+            )
         numeric = edge_statistics._numeric_parts()
         if numeric is not None:
             stored_direction = edge_statistics.metadata.get("positive_direction")
@@ -609,6 +615,8 @@ def _lens_stat_one(
     if score_type not in {"standard", "positive", "negative"}:
         raise ValueError("score_type must be 'standard', 'positive', or 'negative'")
     prepared = _coerce_edge_statistics(edge_statistics, positive_direction=positive_direction)
+    if "estimable" in prepared.table and not prepared.table["estimable"].all():
+        raise ValueError("nonestimable edges cannot enter LENS ranking; inspect estimable column")
     ranked, ranking_metadata = rank_edges(prepared.table)
     universe = set(ranked["edge_id"])
     input_sets = {

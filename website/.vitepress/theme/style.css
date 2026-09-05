@@ -113,6 +113,12 @@
   width: 100%;
 }
 
+.vp-doc mjx-container[display="true"] {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .vp-doc code {
   color: var(--vp-c-brand-1);
 }
@@ -134,6 +140,11 @@
 }
 
 @media (max-width: 560px) {
+  .vp-doc table {
+    display: block;
+    overflow-x: auto;
+  }
+
   .vp-doc {
     font-size: 15.5px;
   }

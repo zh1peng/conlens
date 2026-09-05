@@ -39,6 +39,7 @@ EDGE_SUMMARY_COLUMNS = [
 REPLICATE_SUMMARY_COLUMNS = [
     "replicate", "set_name", "detected", "same_direction", "direction", "es",
     "nes", "p_value", "q_value", "leading_edge_size", "jaccard_with_observed",
+    "n_null_tail", "minimum_resolvable_p",
 ]
 _COMPATIBILITY_FIELDS = (
     "family_name", "edge_universe_hash", "edge_mapping_hash", "set_definition_hash",
@@ -224,6 +225,8 @@ class _StabilityAccumulator:
                 "p_value": item.p_value, "q_value": item.q_value,
                 "leading_edge_size": item.leading_edge_size,
                 "jaccard_with_observed": score,
+                "n_null_tail": item.n_null_tail,
+                "minimum_resolvable_p": item.minimum_resolvable_p,
             })
         self.total += 1
 
@@ -332,6 +335,7 @@ class _StabilityAccumulator:
             pd.DataFrame(edge_rows, columns=EDGE_SUMMARY_COLUMNS),
             pd.DataFrame(self.replicate_rows, columns=REPLICATE_SUMMARY_COLUMNS),
             metadata,
+            observed_reference=self.observed,
         )
 
 
@@ -539,4 +543,15 @@ def lens_bootstrap(
         for result in remaining:
             for name, accumulator in accumulators.items():
                 accumulator.add(result[name])
-    return {name: accumulator.finalize() for name, accumulator in accumulators.items()}
+    results = {name: accumulator.finalize() for name, accumulator in accumulators.items()}
+    for stability_result in results.values():
+        stability_result.metadata.update({
+            "random_seed": random_state,
+            "seed_sequence_entropy": seed_sequence.entropy,
+            "seed_derivation": "SeedSequence.spawn(3): draws, observed FL, bootstrap FL children",
+            "observed_permutation_seed": int(observed_seed.generate_state(1)[0]),
+            "bootstrap_permutation_seeds": fit_seeds,
+            "bootstrap_draw_indices": [draw.tolist() for draw in draws],
+            "inner_monte_carlo_variation": True,
+        })
+    return results

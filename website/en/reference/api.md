@@ -10,8 +10,10 @@
 | `lens_fl_permute` | Stream contrast-specific Freedman–Lane null edge effects |
 | `plot_design` | Inspect the design matrix and contrast vectors |
 
-`partial_r` and model-adjusted `hedges_g` are supported. Zero-residual-variance edges remain in
-the edge universe with neutral statistics and `estimable=False`.
+`partial_r` and model-adjusted `hedges_g` are supported. Degenerate edges remain in
+the GLM audit table with `estimable=False` and placeholder 0/1 values. `lens_stat` rejects
+these inputs; the placeholders are not evidence of no association. See the
+[updated inference policy](/guide/inference).
 
 ## Data and edge sets
 

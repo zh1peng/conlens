@@ -26,7 +26,7 @@ export default defineConfig({
       lang: 'zh-CN',
       title: 'ConLens',
       titleTemplate: ':title · ConLens',
-      description: '连接组全排序富集、流式 permutation、leading-edge 网络与稳定性分析',
+      description: '检验预定义连接集合的富集，定位形成富集的连接，并评估抽样稳定性',
       themeConfig: {
         logo: '/conlens-mark.svg',
         siteTitle: 'ConLens',
@@ -42,16 +42,16 @@ export default defineConfig({
             text: '从这里开始',
             items: [
               { text: '软件包概览', link: '/' },
-              { text: 'LENS 的输入', link: '/guide/introduction' },
+              { text: 'LENS 适合回答什么问题', link: '/guide/introduction' },
               { text: '安装', link: '/guide/installation' },
-              { text: '五分钟快速开始', link: '/guide/quick-start' },
+              { text: '运行第一个分析', link: '/guide/quick-start' },
             ],
           },
           {
             text: '概念、推断与解释',
             items: [
-              { text: '数据与 edge sets', link: '/guide/data-and-sets' },
-              { text: 'Permutation 与零模型', link: '/guide/inference' },
+              { text: '准备数据与边集合', link: '/guide/data-and-sets' },
+              { text: '置换与零模型', link: '/guide/inference' },
               { text: '结果与 leading edge', link: '/guide/results' },
               { text: '如何解释结果', link: '/guide/interpretation' },
             ],
@@ -59,11 +59,11 @@ export default defineConfig({
           {
             text: '分析教程',
             items: [
-              { text: '从 node maps 构建 edge sets', link: '/tutorials/map-based-edge-sets' },
-              { text: 'Design、contrast 与效应量', link: '/tutorials/design-and-contrasts' },
+              { text: '根据脑区注释构建边集合', link: '/tutorials/map-based-edge-sets' },
+              { text: '设计矩阵、统计对比与效应量', link: '/tutorials/design-and-contrasts' },
               { text: 'Bootstrap 稳定性', link: '/tutorials/stability' },
-              { text: '只有 edge statistics 时', link: '/tutorials/edge-statistics' },
-              { text: '外部 observed / null effects', link: '/tutorials/external-effects' },
+              { text: '分析已有观测统计量', link: '/tutorials/edge-statistics' },
+              { text: '导入外部模型与置换结果', link: '/tutorials/external-effects' },
               { text: '可视化', link: '/tutorials/visualization' },
             ],
           },
@@ -72,6 +72,7 @@ export default defineConfig({
             items: [
               { text: 'Python API', link: '/reference/api' },
               { text: '命令行工具', link: '/reference/cli' },
+              { text: '验证记录与适用范围', link: '/guide/validation' },
             ],
           },
         ],

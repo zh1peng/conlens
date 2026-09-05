@@ -1,37 +1,25 @@
 <img class="conlens-doc-logo" src="/conlens-logo.png" alt="ConLens 标志">
 
-# 从边排序看到网络结构
+# ConLens：连接组边集合富集分析
 
-ConLens 用完整的有符号边排序检验预先定义的 edge sets，并把推动富集峰值或谷值的
-leading edges 还原为网络。它不先按 edge-wise P 值筛边，也不把 leading edge 当作逐边显著结果。
+完成逐边关联分析后，与年龄、症状或组间差异相关的连接，是否集中在预先定义的网络或连接集合中？
 
-## 一条清楚的分析链
+ConLens 实现 LENS 分析：按关联统计量排列本次分析的全部有效边，检验预定义集合是否集中在排序的一端，并标出形成该次富集的连接子集（leading edge）。分析不需要先按逐边 P 值筛选连接。
 
-```text
-个体 connectomes ── lens_glm ── true edge statistics
-                                         │
-                                         ├── lens_stat ── observed LENS statistics
-                                         │
-                                         └── lens_fl_permute ── lens_stat ── null LENS statistics
-                                                                               │
-                                                                               ▼
-                                                                          lens_enrich
-```
+## 准备什么数据
 
-如果手里只有已经算好的边统计量，把 `lens_glm` 换成 `make_edge_statistics`，把
-`lens_fl_permute` 换成 `lens_edge_permute`。两个入口最终都进入同一个 `lens_stat` 和
-`lens_enrich`，统计定义不会分叉。
+使用个体数据时，需要每位受试者的连接矩阵、表型和协变量，以及事先定义的边集合。集合可以按网络划分，也可以根据 PET 等脑区注释或研究假设定义。
 
-## 从哪里开始
+| 已有数据 | 从哪里开始 |
+| --- | --- |
+| 独立受试者的连接矩阵与表型，满足模型和残差可交换性假设 | [运行第一个分析](/guide/quick-start)：GLM 与 Freedman–Lane 受试者残差置换 |
+| 完整的观测统计量，以及适当外部模型生成的置换统计量 | [导入外部模型与置换结果](/tutorials/external-effects) |
+| 只有完整的观测边统计量 | [描述性富集与连接定位](/tutorials/edge-statistics)；没有适当零分布时不报告推断性显著性 |
 
-- 第一次使用：先读[五分钟快速开始](/guide/quick-start)。
-- 要建立 age、诊断组和协变量模型：看[Design、contrast 与效应量](/tutorials/design-and-contrasts)。
-- 要从 PET 或其他 node maps 定义 edge sets：看[从 node maps 构建 edge sets](/tutorials/map-based-edge-sets)。
-- 想知道 null 如何生成和为何不会占满内存：看[Permutation 与推断](/guide/inference)。
-- 要画 connectome heatmap、富集 heatmap、running sum 或 circos：看[可视化](/tutorials/visualization)。
-- 要评估结果对受试者抽样的敏感性：看[Bootstrap 稳定性](/tutorials/stability)。
+边标签置换打乱的是统计量与边身份的对应关系，依赖不同的可交换性假设，不能直接代替受试者置换。选择前请阅读[置换与零模型](/guide/inference)。
 
-::: warning 网络级结果不是单边显著性
-网络集合显著，表示集合中的边在完整排序里出现系统性聚集；它不意味着 leading-edge
-里的每条边都通过了逐边检验。
-:::
+## 会得到什么
+
+结果包括集合的 ES、方向和 leading edge；有适当零分布时还包括 NES、经验 P 值和联合 BH 校正结果。可通过[绘图](/tutorials/visualization)查看网络，并用[受试者重抽样](/tutorials/stability)评估稳定性。集合显著不意味着其中每条连接都通过逐边显著性检验。
+
+第一次使用，请先完成[运行第一个分析](/guide/quick-start)，再按[准备连接矩阵、表型与边集合](/guide/data-and-sets)换入自己的数据。

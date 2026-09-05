@@ -1,6 +1,6 @@
 # Building edge sets from node maps
 
-ConLens 2.2.0 provides three map-based builders. They encode different scientific questions:
+Since 2.2.0, ConLens provides three map-based builders. They encode different scientific questions:
 
 | Question | API | Selection unit |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ edges = matrix_to_edges(
 ```
 
 The zero matrix defines which edges can be selected; its values are not used by the builders. A
-complete undirected universe contains \(N(N-1)/2\) edges: 2,278 for DK68, 4,950 for Schaefer100,
+complete undirected universe contains $N(N-1)/2$ edges: 2,278 for DK68, 4,950 for Schaefer100,
 19,900 for Schaefer200, and 44,850 for Schaefer300.
 
 You may instead supply a sparse structural or otherwise restricted edge table. Builders only select
@@ -114,7 +114,7 @@ node-selection rule:
 | `n_nodes` | Fixed number of nodes |
 | `cutoff` | Threshold in map-value units |
 
-With a cutoff, `highest` keeps \(x_i\ge c\) and `lowest` keeps \(x_i\le c\). Fractional and
+With a cutoff, `highest` keeps $x_i\ge c$ and `lowest` keeps $x_i\le c$. Fractional and
 fixed-count ties are resolved by atlas map order; cutoff selection retains every node satisfying the
 threshold. `map_names` selects columns, while `name_prefix` can distinguish multiple definitions.
 
@@ -126,24 +126,24 @@ be removed entirely.
 
 ### The meaning of `connect`
 
-Let \(S\) be the selected nodes:
+Let $S$ be the selected nodes:
 
 | Value | Endpoint rule | Interpretation |
 | --- | --- | --- |
-| `"within"` | Both endpoints are in \(S\) | Edges inside selected nodes |
-| `"touching"` | At least one endpoint is in \(S\) | Every edge incident to selected nodes |
-| `"between"` | Exactly one endpoint is in \(S\) | Selected-to-unselected edges |
+| `"within"` | Both endpoints are in $S$ | Edges inside selected nodes |
+| `"touching"` | At least one endpoint is in $S$ | Every edge incident to selected nodes |
+| `"between"` | Exactly one endpoint is in $S$ | Selected-to-unselected edges |
 
 If `A` and `B` are selected from `A, B, C, D`, `within` contains A–B, `between` contains A–C,
 A–D, B–C, and B–D, and `touching` contains both groups. C–D is in none of them.
 
-For a complete undirected universe with \(N\) nodes and \(k\) selected nodes:
+For a complete undirected universe with $N$ nodes and $k$ selected nodes:
 
-\[
+$$
 |E_{within}|=\frac{k(k-1)}{2},\quad
 |E_{between}|=k(N-k),\quad
 |E_{touching}|=\frac{N(N-1)}{2}-\frac{(N-k)(N-k-1)}{2}.
-\]
+$$
 
 These formulas do not apply unchanged to sparse, directed, or diagonal-inclusive universes. PET
 abundance studies commonly use `within` to ask about edges among receptor-rich parcels. Use
@@ -180,9 +180,9 @@ top-20% example. A sparse universe still selects 40 nodes but can contain fewer 
 
 This method scores each candidate edge by absolute endpoint difference:
 
-\[
+$$
 d_{ij}=|x_i-x_j|.
-\]
+$$
 
 Select edges whose D1 values are closest:
 
@@ -200,7 +200,7 @@ d1_close = make_node_distance_sets(
 ```
 
 Use `keep="farthest"` for large differences. Supply exactly one of `edge_fraction` and `cutoff`.
-For cutoff selection, `closest` keeps \(d_{ij}\le c\) and `farthest` keeps \(d_{ij}\ge c\).
+For cutoff selection, `closest` keeps $d_{ij}\le c$ and `farthest` keeps $d_{ij}\ge c$.
 
 `value_scale="raw"` uses map values. `value_scale="rank"` first converts valid node values to
 percentile ranks, emphasizing relative order and reducing sensitivity to units and outliers. This
@@ -214,7 +214,7 @@ not occur in a top-abundance within set.
 
 ## Method 3: multi-map node-profile similarity
 
-Represent node \(i\) by \(\mathbf{x}_i=(x_{i1},\ldots,x_{im})\), then compare endpoint profiles
+Represent node $i$ by $\mathbf{x}_i=(x_{i1},\ldots,x_{im})$, then compare endpoint profiles
 for every candidate edge:
 
 ```python
@@ -237,9 +237,9 @@ per receptor.
 
 | Metric | `most_similar` | `least_similar` |
 | --- | --- | --- |
-| `"pearson"` | Large correlation; cutoff keeps \(r\ge c\) | Small correlation; \(r\le c\) |
-| `"cosine"` | Large similarity; \(s\ge c\) | Small similarity; \(s\le c\) |
-| `"euclidean"` | Small distance; \(d\le c\) | Large distance; \(d\ge c\) |
+| `"pearson"` | Large correlation; cutoff keeps $r\ge c$ | Small correlation; $r\le c$ |
+| `"cosine"` | Large similarity; $s\ge c$ | Small similarity; $s\le c$ |
+| `"euclidean"` | Small distance; $d\le c$ | Large distance; $d\ge c$ |
 
 Supply exactly one of `edge_fraction` and `cutoff`. Pearson and cosine cutoffs must be in [-1, 1];
 Euclidean cutoffs must be non-negative. At least two maps and complete values are required.

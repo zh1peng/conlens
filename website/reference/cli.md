@@ -1,6 +1,6 @@
 # 命令行工具
 
-CLI 面向“已有 signed edge statistics”的路线：
+当前命令行接收完整的观测边统计量表。默认 `--n-permutations 0` 只计算描述性结果；正数显式选择边标签置换，依赖边标签可交换的零假设，不是受试者置换。需要个体 GLM/FL 或外部设计匹配零分布时使用 Python API。下面是明确选择边标签零模型后的命令（多行续行写法适用于 Bash；PowerShell 可写成一行）：
 
 ```bash
 conlens edges.csv sets.json result.json \
@@ -8,7 +8,7 @@ conlens edges.csv sets.json result.json \
   --n-permutations 10000 \
   --random-state 42 \
   --family-name age-network-pairs \
-  --min-size 5 --max-size 500 \
+  --min-size 5 \
   --store-running-sum
 ```
 

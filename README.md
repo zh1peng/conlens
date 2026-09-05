@@ -17,22 +17,15 @@ ConLens performs ranked enrichment of predefined connectome edge sets and recons
 the leading-edge networks that drive each enrichment result. It uses the complete signed
 edge ranking; edge-wise significance filtering is not part of the method.
 
-The public workflow has four explicit stages:
+Choose the null model before interpreting significance. Subject-level GLM/FL requires
+appropriate residual exchangeability. External observed and permutation statistics inherit
+the external model's assumptions. With observed statistics alone, start with descriptive
+ES and leading edges. Edge-label permutation requires a distinct edge-exchangeability
+null and cannot replace subject-level inference.
 
-```text
-lens_glm / external statistics
-             ↓
-          lens_stat
-             ↓
-lens_fl_permute / lens_edge_permute → lens_stat (streamed)
-             ↓
-         lens_enrich
-```
-
-`lens_enrich` never fits or permutes edge models. It consumes observed LENS statistics and
-a stream of null LENS statistics, then performs normalization, empirical inference, and a
-joint Benjamini–Hochberg correction. The result keeps one null enrichment score per
-permutation and edge set—not the much larger edge × permutation matrix.
+A positive ES means a set ranks relatively high against the background; it does not mean
+every member edge has a positive effect. Enrichment significance applies to sets, not to
+individual leading edges.
 
 ## Install
 
@@ -42,48 +35,20 @@ cd conlens
 python -m pip install .
 ```
 
-## Subject-level example
+## Run a complete example
 
-```python
-from conlens import (
-    Contrast, lens_enrich, lens_fl_permute, lens_glm,
-    lens_stat, make_design,
-)
+From the cloned repository root:
 
-design = make_design(
-    groups={
-        "control": diagnosis == "control",
-        "g1": diagnosis == "g1",
-        "g2": diagnosis == "g2",
-    },
-    continuous={"age": age},
-    indicators={"sex": sex},
-)
-contrasts = {
-    "g1_vs_control": Contrast(
-        {"g1": 1, "control": -1}, "hedges_g", "g1 > control"
-    ),
-    "age": Contrast(
-        {"age": 1}, "partial_r", "connectivity increases with age"
-    ),
-}
-
-true_edges = lens_glm(connectomes, design=design, contrasts=contrasts)
-observed = lens_stat(true_edges, edge_sets, store_running_sum=True)
-null_edges = lens_fl_permute(
-    connectomes,
-    design=design,
-    contrasts=contrasts,
-    n_permutations=10_000,
-    random_state=42,
-)
-null_stats = (lens_stat(item, edge_sets) for item in null_edges)
-result = lens_enrich(
-    observed,
-    null_stats,
-    family_name="primary-model",
-)
+```bash
+python -m examples.teaching_workflow
 ```
+
+This deterministic simulation supplies connectomes, phenotypes, string node labels, and
+network sets. It runs GLM/FL, descriptive analysis, ID-aligned external null import,
+annotation-based set construction, and a small bootstrap. Executed output and JSON files
+are written to `website/generated`. The low resampling counts demonstrate execution,
+not statistical calibration. See the [first-analysis tutorial](https://zh1peng.github.io/conlens/guide/quick-start)
+for the shared executable source and actual output.
 
 For a continuous contrast, the ranked edge statistic is partial correlation. For a group
 contrast, it is model-adjusted Hedges' g using the full model residual standard deviation.
@@ -101,3 +66,11 @@ python -m build
 ```
 
 Python 3.10+ · Linux, macOS, and Windows · MIT license
+
+## Scientific remediation
+
+ConLens 2.3.0 unifies GLM coefficient/variance computation through one SVD,
+exclude ambiguous zero ES from standard-mode directional tails, and retain zeros for
+prespecified one-sided scores. Nonestimable GLM edges remain auditable but cannot enter
+LENS ranking. Bootstrap exports its complete observed reference, actual seeds, and draws.
+See `CHANGELOG.md` and `benchmarks/README.md` for affected behavior and validation scope.

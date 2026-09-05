@@ -1,8 +1,8 @@
-# Design、contrast 与效应量
+# 设计矩阵、统计对比与效应量
 
-这一页从 LENS 真正使用的输入开始：每条边需要一个 signed effect。`lens_glm` 负责把个体
-connectomes、design matrix 和 contrast 转成这些 edge statistics；`lens_stat` 再对完整边排序
-计算网络集合的 ES。
+设计矩阵规定模型中有哪些变量，统计对比规定这次检验什么。例如患者组权重 1、对照组权重 −1 表示患者相对对照的差异；正值表示患者组连接值较高。模型只调整已加入设计矩阵的变量。
+
+本页的参数片段展示不同模型，不应依次全部执行；完整可运行流程见[快速开始](/guide/quick-start)。换入自己的数据前先完成[受试者对齐](/guide/data-and-sets)。连续变量使用 partial r 排序；按当前组编码指定的组间对比使用 model-adjusted Hedges' g，后者由完整模型残差标准差标准化。
 
 ## 统一的模型入口
 
@@ -94,7 +94,7 @@ contrasts = {
 ```
 
 此时 partial $r$ 对应控制了 design 中其余列后的 age 关联。如果只传 age，没有协变量，软件不会
-凭空“自动调整”其他变量；它只调整你明确放进 design 的列。
+调整其他变量；它只调整你明确放进设计矩阵的列。
 
 ## 分类变量：model-adjusted Hedges' g
 
@@ -193,7 +193,7 @@ contrasts = {
 }
 ```
 
-## 从 edge-wise effect 到正式 LENS 推断
+## 从逐边关联到集合推断
 
 上面的 design/contrast 只定义了 observed 边效应。正式分析还要让每个 FL null 都走同一条
 `lens_stat`：
@@ -201,18 +201,21 @@ contrasts = {
 ```python
 from conlens import lens_enrich, lens_fl_permute, lens_glm, lens_stat
 
-true_edges = lens_glm(
+observed_edges = lens_glm(
     connectomes,
     design=design,
     contrasts=contrasts,
     node_labels=node_labels,
 )
-observed = lens_stat(true_edges, edge_sets, store_running_sum=True)
+observed = lens_stat(observed_edges, edge_sets, store_running_sum=True)
 
 null_edges = lens_fl_permute(
     connectomes,
     design=design,
     contrasts=contrasts,
+    node_labels=node_labels,
+    directed=False,
+    diagonal=False,
     n_permutations=10_000,
     exchangeability_blocks=site,
     random_state=42,
@@ -223,13 +226,15 @@ fit = lens_enrich(
     observed,
     null_stats,
     min_size=5,
-    max_size=500,
+    max_size=None,
     family_name="primary-model",
 )
 ```
 
 `lens_fl_permute` 对每个 contrast 构造对应的 reduced model。Observed 与 null 都用相同的效应量、
-edge universe、edge sets、权重和 ES 定义。`lens_enrich` 只消费 set-level LENS statistics，因而
+edge universe、edge sets、权重和 ES 定义。`lens_enrich` 只接收已经计算好的集合富集统计量，因而
 无需保存巨大的 edge × permutation 数组。
 
 设计看清楚后，可以继续看[Permutation 与推断](/guide/inference)和[可视化](/tutorials/visualization)。
+
+系数和对比标准误共用一次 SVD 分解；对比方差因子为 `sum((c @ X_pinv)**2)`，避免另外对 XᵀX 求伪逆造成数值秩不一致。换单位与原始矩阵反例的验证见[验证记录](/guide/validation)。

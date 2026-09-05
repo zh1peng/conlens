@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import copy
+import platform
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 import numpy as np
 import pandas as pd
+import scipy
 
+from ._version import __version__
 from .results import GLMResult, LensResult, LensSetResult, LensStatResult
 
 
@@ -105,18 +108,40 @@ def _validate_null(observed: LensStatResult, null: LensStatResult, label: str) -
         and null.metadata.get("design_data_hash") != expected_design_hash
     ):
         raise ValueError(f"{label} has incompatible design_data_hash")
+    expected_data_hash = observed.metadata.get("connectome_data_hash")
+    if (
+        expected_data_hash is not None
+        and null.metadata.get("connectome_data_hash") != expected_data_hash
+    ):
+        raise ValueError(f"{label} has incompatible connectome_data_hash")
 
 
-def _apply_null(item: LensSetResult, null_values: np.ndarray) -> None:
+def _apply_null(
+    item: LensSetResult, null_values: np.ndarray, score_type: str = "standard"
+) -> None:
     assert item.ES is not None
-    positive = null_values[null_values >= 0]
-    negative = null_values[null_values <= 0]
+    positive = null_values[null_values > 0]
+    negative = null_values[null_values < 0]
     item.n_null_positive = len(positive)
     item.n_null_negative = len(negative)
+    item.n_null_zero = int(np.count_nonzero(null_values == 0))
     item.n_permutations = len(null_values)
-    tail = positive if item.ES > 0 else negative
+    tail = (positive if item.ES > 0 else negative) if score_type == "standard" else null_values
+    item.n_null_tail = len(tail)
     item.minimum_resolvable_p = 1.0 / (len(tail) + 1)
-    item.p_value_method = "same-direction empirical tail with plus-one correction"
+    item.p_value_method = (
+        "strict-sign conditional empirical tail with plus-one correction"
+        if score_type == "standard"
+        else "prespecified one-sided empirical tail with plus-one correction"
+    )
+    if score_type == "standard" and item.ES == 0:
+        item.NES = None
+        item.p_value = 1.0
+        item.n_more_extreme = 0
+        item.n_null_tail = 0
+        item.minimum_resolvable_p = 1.0
+        item.normalization_status = "ambiguous zero observed score"
+        return
     if len(tail) == 0:
         item.NES = None
         item.p_value = 1.0
@@ -130,7 +155,7 @@ def _apply_null(item: LensSetResult, null_values: np.ndarray) -> None:
     else:
         item.NES = float(item.ES / scale)
         item.normalization_status = "ok"
-    if item.ES > 0:
+    if score_type == "positive" or (score_type == "standard" and item.ES > 0):
         more_extreme = int(np.count_nonzero(tail >= item.ES))
     else:
         more_extreme = int(np.count_nonzero(tail <= item.ES))
@@ -180,6 +205,10 @@ def lens_enrich(
                     "exchangeability_blocks_used": bool(
                         null[name].metadata.get("exchangeability_blocks_used", False)
                     ),
+                    "exchangeability_blocks_hash": null[name].metadata.get(
+                        "exchangeability_blocks_hash"
+                    ),
+                    "random_seed": null[name].metadata.get("random_seed"),
                 }
                 if replicate_index == 0:
                     null_provenance[name] = provenance
@@ -211,7 +240,10 @@ def lens_enrich(
             for item in current_sets:
                 if item.status != "ok":
                     continue
-                _apply_null(item, null_frame[item.set_name].to_numpy(float))
+                _apply_null(
+                    item, null_frame[item.set_name].to_numpy(float),
+                    observed_item.metadata["score_type"],
+                )
                 pvalue_targets.append(item)
         metadata = {
             **copy.deepcopy(observed_item.metadata),
@@ -221,6 +253,10 @@ def lens_enrich(
             "n_permutations": n_permutations,
             "inference_status": "complete" if null_frame is not None else "descriptive",
             "adjustment_method": "BH" if null_frame is not None else None,
+            "software_versions": {
+                "conlens": __version__, "python": platform.python_version(),
+                "numpy": np.__version__, "scipy": scipy.__version__, "pandas": pd.__version__,
+            },
             **null_provenance[name],
         }
         results[name] = LensResult(

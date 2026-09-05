@@ -1,5 +1,22 @@
 # Null-path benchmark
 
+## Scientific validation
+
+Run `python -m benchmarks.validate_inference` from the repository root for the
+remediation validation. Defaults are 400 independent datasets per scenario, 399
+permutations, four workers, and 40 fixed bootstrap draws evaluated with three seed
+streams at both 399 and 1,599 inner permutations. The JSON record contains all raw
+calibration P/q values, seeds, Wilson intervals, background-signal results, stability
+summaries, dependency versions, Git HEAD/dirty state, and source-file SHA-256 hashes.
+The report in `website/guide/validation.md` distinguishes limited simulation evidence
+from software correctness and does not claim validity for arbitrary dependence or
+clustered study designs. These statistical runs are separate from fast CI tests.
+
+After the statistical run, `python -m benchmarks.render_validation` generates the
+website numeric tables directly from the recorded results.
+
+## Performance only
+
 `benchmark_null_path.py` compares the NumPy fast path with the materialized Pandas path that
 implements the ConLens 2.0.0 calculation. Both paths receive the same generated data and random
 seed. The script aborts unless their complete ES sequences are exactly equal according to

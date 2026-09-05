@@ -40,13 +40,13 @@ matrix[0:8, 8:16] += 0.18
 matrix[8:16, 0:8] = matrix[0:8, 8:16].T
 edges = matrix_to_edges(matrix, labels)
 edge_sets = make_network_pair_sets(edges, node_networks)
-true_edges = make_edge_statistics(
+observed_edges = make_edge_statistics(
     edges,
     positive_direction="stronger association",
     statistic_name="signed edge effect",
 )
-observed = lens_stat(true_edges, edge_sets, store_running_sum=True)
-null_edges = lens_edge_permute(true_edges, n_permutations=499, random_state=9)
+observed = lens_stat(observed_edges, edge_sets, store_running_sum=True)
+null_edges = lens_edge_permute(observed_edges, n_permutations=499, random_state=9)
 result = lens_enrich(
     observed,
     (lens_stat(item, edge_sets) for item in null_edges),

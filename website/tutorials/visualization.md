@@ -3,7 +3,9 @@
 绘图函数直接读取 ConLens 结果对象，不会重新计算统计量。下面的函数都返回
 Matplotlib `Axes`，所以可以照常规 Matplotlib 用法继续改标题、字体和版式。
 
-## 一张图同时看 edge 和 network 结果
+这些图示的数值属于各自原示例，不是当前快速开始的输出。绘制本次结果时传入自己的 fit；完整模拟输入见[快速开始](/guide/quick-start)。
+
+## 同时查看逐边关联与网络富集
 
 ```python
 from conlens import plot_lens_heatmap
@@ -39,7 +41,7 @@ plot_connectome_heatmap(
 矩阵会按 network 重排，顶部与左侧色带记录 node membership。无向矩阵默认只画
 下三角，避免把同一组数值显示两次。如果确实需要完整矩阵，传入 `triangle="full"`。
 
-## Network enrichment heatmap
+## 网络富集图
 
 ```python
 from conlens import plot_enrichment_heatmap

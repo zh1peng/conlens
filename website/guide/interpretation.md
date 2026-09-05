@@ -1,23 +1,25 @@
-# 如何解释结果
+# 如何解释和报告结果
 
-先读方向，再读显著性。`positive_direction` 定义了正 statistic 的科学含义；ES/NES 的正负沿用
-这个定义。P 和 q 回答的是 edge set 在对应 null 下是否出现异常聚集，不回答单条边是否显著。
+先区分是否完成检验，再解释统计对比与富集方向。`positive_direction` 定义正边统计量的含义；正 ES 表示集合相对集中在排序较高的一端，不保证每条边均为正向效应。负 ES 同样不意味着每条成员边均有负向关联。
 
-## 应当报告
+ES 同时依赖集合外的排序背景。目标集合的数据不变时，集合外信号变化也可能改变它的 ES 和 P。富集检验不能直接替代集合内均值检验，或把“集合内所有系数为零”当作未经论证的集合零假设。
 
-- edge statistic 的定义：partial $r$ 或 model-adjusted Hedges' $g$；
-- design columns、contrast weights、连续变量是否中心化；
-- `family_name`、tested sets 数量和 BH；
-- permutation scheme、次数、随机种子与 exchangeability blocks；
-- ES、NES、P、q、方向与 leading-edge size；
-- set-size filter、edge universe、权重指数和 score type。
+## 报告分析定义
 
-## 不应声称
+报告边统计量（partial r 或 model-adjusted Hedges' g）、设计列、对比权重、中心化方式、最终受试者与节点顺序记录、固定边范围和集合定义。推断部分记录评分模式、权重、集合大小限制、零分布方式、置换次数和实际种子、分块定义，以及纳入联合 BH 的全部对比和集合。
 
-- leading edges 是逐边校正后的显著边；
-- edge-label permutation 保留了 connectome 的拓扑或空间依赖；
-- bootstrap stability 是“真边概率”或未来样本的精确复现概率；
-- 相同 `family_name` 能把分开运行的检验自动组成同一个 BH family。
+相同 `family_name` 不会合并独立运行。若跨多个集合方案或模型进行选择，应事先定义总体检验家族。重叠集合的检验相关，不能因执行了 BH 就声称任意依赖结构下均已验证 FDR 控制。
 
-当模型包含家系、重复测量或其他 cluster 时，当前 subject bootstrap 不是合适的 outer resampling
-单位。ConLens 目前只实现独立受试者或分层受试者 bootstrap。
+## 结果报告模板
+
+> 在调整〔协变量〕后，〔集合名称〕在〔所用置换方式〕构造的零分布下表现出〔排序方向〕富集（ES＝〔值〕，NES＝〔值〕，P＝〔值〕，BH 校正后 P＝〔值〕）。该次富集对应的 leading edge 包含〔数量〕条连接。显著性针对整个边集合，不表示这些连接分别通过了逐边显著性检验。
+
+数值均应来自实际分析。没有显著集合时报告预设分析未获得足够证据，不将其解释为证明没有效应。被过滤或只完成描述性分析的集合应另外注明，见[结果状态](/guide/results)。
+
+## 稳定性与分子集合
+
+Bootstrap 频率描述抽样和有限置换下的分析稳定性，不是“真边概率”或新队列复现概率。家系、重复测量需要适当抽样单位，独立或分层受试者 bootstrap 不能自动替代。
+
+根据 D1 等注释定义的集合说明“这些注释值较高脑区之间的连接出现富集”，不证明该分子直接导致连接变化。不同注释集合可能重叠，也不必统计独立。
+
+更多例子见[稳定性](/tutorials/stability)与[根据脑区注释构建集合](/tutorials/map-based-edge-sets)。

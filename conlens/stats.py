@@ -27,7 +27,6 @@ class GLMEdgeStatistics:
 @dataclass(frozen=True, slots=True)
 class _PreparedGLMDesign:
     pseudoinverse: np.ndarray
-    xtx_inverse: np.ndarray
     residual_df: int
 
 
@@ -35,13 +34,14 @@ def _prepare_glm_design(design: np.ndarray) -> _PreparedGLMDesign:
     x = np.asarray(design, dtype=float)
     if x.ndim != 2 or not np.isfinite(x).all():
         raise ValueError("design must be a finite two-dimensional array")
-    rank = int(np.linalg.matrix_rank(x))
+    u, singular_values, vh = np.linalg.svd(x, full_matrices=False)
+    tolerance = max(x.shape) * np.finfo(float).eps * singular_values[0]
+    rank = int(np.count_nonzero(singular_values > tolerance))
     residual_df = len(x) - rank
     if rank < x.shape[1] or residual_df <= 0:
         raise ValueError("design matrix must have full column rank and positive residual df")
     return _PreparedGLMDesign(
-        pseudoinverse=np.linalg.pinv(x),
-        xtx_inverse=np.linalg.pinv(x.T @ x, hermitian=True),
+        pseudoinverse=(vh.T / singular_values) @ u.T,
         residual_df=residual_df,
     )
 
@@ -78,10 +78,18 @@ def glm_contrast_statistics(
     residual = y - x @ beta
     residual_variance = np.sum(residual**2, axis=0) / residual_df
     residual_sd = np.sqrt(residual_variance)
-    contrast_scale = float(c @ prepared.xtx_inverse @ c)
+    contrast_scale = float(np.sum((c @ prepared.pseudoinverse) ** 2))
     estimates = c @ beta
     standard_error = residual_sd * np.sqrt(contrast_scale)
-    estimable = np.isfinite(standard_error) & (standard_error > np.finfo(float).eps)
+    # A relative residual threshold detects numerical perfect fits independently
+    # of the response units. Constant measurements are not association evidence.
+    residual_norm = np.linalg.norm(residual, axis=0)
+    response_norm = np.linalg.norm(y, axis=0)
+    tolerance = max(x.shape) * np.finfo(float).eps * response_norm
+    estimable = (
+        np.isfinite(standard_error) & (standard_error > 0)
+        & (residual_norm > tolerance) & (np.ptp(y, axis=0) > 0)
+    )
     t_statistic = np.divide(
         estimates,
         standard_error,

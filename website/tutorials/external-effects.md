@@ -1,17 +1,12 @@
-# 外部 observed / null effects
+# 导入外部模型与置换结果
 
-ConLens 默认仍推荐 on-the-fly：由 `lens_fl_permute` 或 `lens_edge_permute` 逐次产生 null，算完
-LENS statistics 后立即释放。若 edge-wise 模型由别的软件完成，或者同一批 permutations 需要反复
-用于不同 edge-set schemes，可以把外部结果接进同一条分析链。
+已有完整的观测边统计量和符合研究设计的外部置换统计量时，可以直接计算集合富集。外部模型负责协变量、误差结构和重采样有效性；ConLens 检查输入对齐，不会因为接收了一个矩阵就验证了零模型。
 
-这不是另一套 enrichment API。区别只在 edge effects 从哪里来：
+观测表需要边端点、完整边 ID 和有符号 statistic；零分布矩阵形状为 `n_edges × n_permutations`，每列是一次完整重复，使用相同统计量、方向和固定边范围。优先用边 ID 作 DataFrame 索引，让接口检查遗漏、重复和未知边并重排；NumPy 数组必须由调用者保证行顺序。
 
-```text
-external observed effects  -> make_edge_statistics()      -> lens_stat()
-external null matrix       -> make_null_edge_statistics() -> lens_stat() -> lens_enrich()
-```
+仓库的 `examples/teaching_workflow.py` 中 `advanced_analysis()` 导出内置 FL 结果、颠倒行顺序，再按 ID 导入；这只演示格式与对齐，继承原来的 FL 零模型。完整运行命令见[快速开始](/guide/quick-start)。以下参数片段供替换为自己的外部模型结果，`permutation_scheme` 是来源说明，不会执行该方案。
 
-## Observed effects
+## 观测统计量
 
 Observed 表每行是一条 edge，`statistic` 必须是有符号的数值。方向要写成统计意义明确的短句：
 
@@ -31,10 +26,10 @@ observed_stats = lens_stat(
 )
 ```
 
-`make_edge_statistics()` 在这里是必要的边界：它固定 canonical edge IDs、node order、统计量方向
+`make_edge_statistics()` 在这里检查边身份并记录 canonical edge IDs、node order、统计量方向
 和 analysis signature。若 `observed_edges` 已经来自 `lens_glm()`，则不需要再调用它。
 
-## Null effects matrix
+## 置换统计量矩阵
 
 Null matrix 的形状是 `n_edges × n_permutations`：行与 `observed_edges` 是同一组 edge，列是一
 次完整 null replicate。NumPy array 必须已经按 observed edge 顺序排列。
@@ -59,7 +54,7 @@ fit = lens_enrich(
     observed_stats,
     null_stats,
     min_size=5,
-    max_size=500,
+    max_size=None,
     family_name="pre-post-network-pairs",
 )
 ```

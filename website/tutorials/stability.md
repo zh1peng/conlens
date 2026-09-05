@@ -1,63 +1,61 @@
-# Bootstrap 稳定性
+# 受试者重抽样与稳定性
 
-`lens_bootstrap` 不是在最终 ES 上单独抖动几次。每个 outer replicate 都会：
+每次重新抽取受试者，并重新完成模型拟合、置换检验、集合富集和联合 BH，能够评估完整分析对抽样的敏感性。当前内置独立或分层受试者 bootstrap；家系和重复测量需要适当抽样单位，strata 不提供通用 cluster bootstrap。
 
-1. 重抽受试者；
-2. 重拟合全部 edge-wise GLM contrasts；
-3. 重跑 Freedman–Lane null；
-4. 重新计算 observed/null LENS statistics；
-5. 在同一个 `family_name` 下重新做联合 BH；
-6. 与原始样本结果比较 set detection、方向与 leading-edge inclusion。
+## 复用完整设置
+
+在仓库根目录运行以下代码；数据和设置与[快速开始](/guide/quick-start)完全相同：
 
 ```python
+from examples.teaching_workflow import first_analysis
 from conlens import lens_bootstrap
 
+example = first_analysis()
 stability = lens_bootstrap(
-    connectomes,
-    edge_sets,
-    design=design,
-    contrasts=contrasts,
-    n_bootstraps=1_000,
-    n_permutations=10_000,
-    strata=diagnosis,
-    exchangeability_blocks=site,
-    random_state=42,
-    n_jobs=-1,
-    family_name="primary-model",
+    example["connectomes"], example["edge_sets"],
+    **example["model_options"], **example["inference_options"],
+    strata=example["diagnosis"], n_bootstraps=4,
+    n_permutations=example["n_permutations"], random_state=42,
 )
-
-age_stability = stability["age"]
-age_stability.set_summary
-age_stability.edge_summary
-age_stability.replicate_summary
+result = stability["patient_vs_control"]
+print(result.set_summary)
+print(result.edge_summary)
+result.save("patient-stability.json")
 ```
 
-`strata` 控制 outer subject bootstrap，例如让各诊断组样本量保持不变；
-`exchangeability_blocks` 控制每个 replicate 内的 FL permutation。两者不是同一个概念。
+4 次重复仅用于运行演示，不足以评估 core。strata 在组内抽取受试者以保持组别样本量；exchangeability_blocks 则限制每次拟合内部的残差重排，两者作用不同。
 
-Replicate 会边生成边汇总。ConLens 只保留 set/edge 计数和用于报告的逐 replicate set-level
-记录，不会同时保存 1,000 份带完整 ranked edges 与 null scores 的结果。
+## 核对真正的观测参照
 
-## 三个不同的频率
+lens_bootstrap 内部重跑观测样本并派生置换种子，所以参照可能与先前 fit 不同，尤其在显著性阈值附近。返回的 observed_reference 是本次稳定性分析实际采用的完整结果，包含所有集合、零分布、排序和分析设置；不是只包含显著集合的摘要。
 
-设总 bootstrap 次数为 $B$，某 observed-significant set 在 $M$ 次 replicate 中再次 BH 显著且方向
-相同。Set stability 为：
+```python
+reference = result.observed_reference
+print(reference.to_frame())
+reference.save("bootstrap-observed-reference.json")
+print(result.metadata["observed_permutation_seed"])
+print(result.metadata["bootstrap_permutation_seeds"])
+print(reference.metadata["min_size"], reference.metadata["max_size"])
+```
+
+结果还保存主种子、SeedSequence 的实际 entropy（主种子为 None 时也可追溯）、派生规则和每次 bootstrap 抽样索引。重新计算观测参照时，将 observed_permutation_seed 直接传给 lens_fl_permute。失败重复会报错，不会静默删除并缩小分母。
+
+## 三种频率
+
+设共完成 $B$ 次重抽样，其中 $M$ 次某集合再次显著且方向与观测一致，边 $e$ 在这些重复中 $K_e$ 次进入 leading edge：
 
 $$
-\text{set stability}=\frac{M}{B}.
+S_{set}=M/B,\qquad S_{conditional,e}=K_e/M,\qquad S_{full,e}=K_e/B.
 $$
 
-若 edge $e$ 在其中 $K_e$ 次进入 replicate leading edge：
+以下是教学数字，不是包的实际结果：1,000 次抽样中集合同方向再检出 600 次，某边其中 420 次进入 leading edge，则集合稳定性为 60%，条件稳定性为 70%，全流程稳定性为 42%。当 $M>0$ 时，$S_{full}=S_{set}S_{conditional}$；没有同方向检出时，条件频率无定义。
 
-$$
-\text{conditional stability}_e=\frac{K_e}{M},
-\qquad
-\text{full-pipeline stability}_e=\frac{K_e}{B}.
-$$
+只追踪观测显著集合。Jeffreys 区间表示有限重复次数带来的频率不确定性，不是边为真的概率区间，也不是新队列复现概率区间。
 
-因此 $M>0$ 时，full-pipeline stability 等于 set stability × conditional stability。反方向显著和
-未检出的 replicate 对 full-pipeline edge inclusion 都贡献 0。
+Core 使用频率区间的下界，而不是单看点估计。条件 core 还要求达到 min_same_direction（默认 30）及集合稳定性下界门槛 0.50；因此上例 70% 不能直接判为条件 core。具体门槛见返回 metadata。
 
-ConLens 报告 Jeffreys Monte Carlo bounds 来说明有限 bootstrap 次数下的频率误差。它们不是
-edge truth 的置信区间。当前只实现独立或分层 subject bootstrap；cluster bootstrap、checkpoint
-和 resume 尚未实现。
+## 内层置换精度
+
+每次重抽样还含有限置换的随机性，阈值附近的再检出频率不能全部归因于受试者抽样。replicate_summary 记录实际 n_null_tail 和 minimum_resolvable_p；观测参照也提供这些字段。
+
+检查敏感性时，固定 metadata 中的 bootstrap_draw_indices 和观测参照，仅改变内层置换种子或置换数，再用 summarize_stability 汇总完整重复结果。低层汇总要求同一组重复拥有一致的置换数；比较不同预算时，应分别建立设置一致的观测参照与重复结果，不能混合分母。示例验证脚本的同预算种子敏感性使用同一参照，见[验证记录](/guide/validation)。

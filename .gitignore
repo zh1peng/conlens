@@ -14,3 +14,5 @@ node_modules/
 website/.vitepress/cache/
 website/.vitepress/dist/
 .venv/
+website/generated/*.json
+!website/generated/analysis-record.json

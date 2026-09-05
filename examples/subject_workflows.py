@@ -55,8 +55,8 @@ edge_sets = {
     "B--B": {"3--4", "3--5", "4--5"},
 }
 
-true_edges = lens_glm(connectomes, design=design, contrasts=contrasts)
-observed = lens_stat(true_edges, edge_sets, store_running_sum=True)
+observed_edges = lens_glm(connectomes, design=design, contrasts=contrasts)
+observed = lens_stat(observed_edges, edge_sets, store_running_sum=True)
 null_edges = lens_fl_permute(
     connectomes,
     design=design,

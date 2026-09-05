@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "website/**"
+      - "examples/**"
+      - "conlens/**"
       - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
 
@@ -35,6 +37,17 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate executed tutorial output
+        run: |
+          python -m pip install .
+          python -m examples.teaching_workflow
+          python -m examples.teaching_plot
 
       - name: Install dependencies
         working-directory: website

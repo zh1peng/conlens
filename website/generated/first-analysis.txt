@@ -1,0 +1,7 @@
+     contrast_name set_name status        ES       NES  p_value  q_value
+patient_vs_control     A--A     ok  1.000000  1.863139 0.005181 0.031088
+patient_vs_control     A--B     ok -0.500000 -1.254741 0.193370 0.244660
+patient_vs_control     B--B     ok  0.351477  0.751530 0.801932 0.801932
+               age     A--A     ok -0.590909 -1.263093 0.203883 0.244660
+               age     A--B     ok -0.437018 -1.194796 0.200000 0.244660
+               age     B--B     ok  0.688578  1.428418 0.114679 0.244660

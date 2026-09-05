@@ -1,71 +1,65 @@
-# Permutation 与推断
+# 置换与推断
+
+零分布规定了显著性所回答的问题。先按研究设计选定零模型，再计算经验 P 值；相同的 ES 计算函数不保证不同置换方式检验同一个假设。
 
 ## 有个体数据：Freedman–Lane
 
-对每个 contrast $\mathbf c$，`lens_fl_permute` 先拟合与 $H_0:\mathbf c^\top\boldsymbol\beta=0$
-对应的 reduced model，置换其残差，再与 reduced fitted values 相加并重拟合 full model：
+对于每个统计对比，内置流程拟合满足该对比为零的约化模型，重排残差，加回约化模型拟合值，并重新拟合完整模型：
 
 $$
 \mathbf Y^{*(b)} = \widehat{\mathbf Y}_0 + \mathbf P_b\widehat{\mathbf E}_0.
 $$
 
-每个 permutation 都重新计算 edge-wise effect、完整边排序和 LENS ES。多个 contrasts 共用同一
-行置换，但各自有符合该 contrast 的 reduced model。
+同一次置换对全部边同步重排行，保留它们在受试者内的共同变化。多个对比共用同一行置换，各自使用对应的约化模型。含协变量的 Freedman–Lane 依赖具体设计和残差可交换性，不能声称在任意数据上都精确有效。
 
-```python
-null_edges = lens_fl_permute(
-    connectomes,
-    design=design,
-    contrasts=contrasts,
-    n_permutations=10_000,
-    exchangeability_blocks=site,
-    random_state=42,
-)
-null_stats = (lens_stat(item, edge_sets) for item in null_edges)
-```
+| 研究设计 | 内置支持范围 |
+| --- | --- |
+| 独立受试者 | 在适当模型与误差可交换性下重排受试者残差 |
+| 按站点限制重排 | exchangeability_blocks 仅在同一标签内重排行；仍需组内可交换性 |
+| 全部标签均为单例，或允许的重排不能改变被检验对比 | 无有效重排，软件拒绝运行 |
+| 配对、重复测量、家系或整群数据 | 单层标签不提供通用多层置换、整组交换或符号翻转；使用经过验证的外部模型与零分布 |
+| 异方差、不平衡分组 | 加协变量或站点标签不会自动消除异方差；需要针对设计验证适用性 |
 
-`exchangeability_blocks` 约束内层 permutation；它不是 bootstrap 的 `strata`，也不能替代
-cluster bootstrap。
+完整调用见[快速开始](/guide/quick-start)。站点块如需使用，应来自与矩阵完全对齐的受试者表。
 
-若个别边没有残差方差，ConLens 不会因此中止整个 GLM。该边继续留在 edge universe，effect
-和 t 记为 0、双侧 P 记为 1，并在 observed audit table 中标记 `estimable=False`。Observed 与
-每个 null replicate 因而始终使用同一组边。
+## 有效测量与退化边
 
-## On the fly，而不是保存 edge × permutation
+有效测量的零值可以是真实连接值。缺失数据和测量失败不能以零代替。恒定边、全零边和被模型数值上完全拟合的边无法提供常规标准化关联统计量。
 
-`lens_fl_permute` 和 `lens_edge_permute` 都返回迭代器。推荐直接把它们接到 `lens_stat`，然后交给
-`lens_enrich`：
+lens_glm 保留审计行，标记 estimable=False，并列出 nonestimable_edge_ids。其中 effect/t=0、P=1 只是存储占位，不能解释成没有关联。lens_stat 对带有这些标记的观测和置换输入拒绝继续排序；bootstrap 失败会报出重复编号，不会丢弃失败重复后更换分母。
 
-```python
-fit = lens_enrich(observed, null_stats, family_name="primary-model")
-```
+GLM 使用同一次 SVD 计算系数和对比方差，残差退化判据相对于响应范数设定。可估计性不由连接值计量单位的绝对大小决定。当前内置矩阵流程需要全部提取边可估计；需要固定稀疏边范围时，应使用能在观测、所有置换与 bootstrap 中保持同一预定范围的外部模型。不能按观察到的 P、t 或效应大小筛选，也不能每次重采样重新决定边范围。
 
-每次 null 的边统计量在算完 ES 后即可释放。最终 `LensResult.null_scores` 只保留每个
-permutation × tested set 的 ES。这正是计算 NES、经验 P 值和画 null 分布所需的信息。
+有效外部统计量中，集合成员权重全为零时，评分退回等权命中并报告 zero_weight_fallback。这只是评分约定，不代表无关联证据；全部统计量相同则无法提供有效排序，会报错。
 
-从 2.0.1 起，重复的 null 计算内部使用预编译的整数 edge-set 表示和 NumPy arrays；只有用户
-读取 edge table、保存结果或构造最终 observed 输出时才 materialize DataFrame。这个变化不改变
-排序、running sum、ES、leading edge、NES、P 或 Q 的定义。
+## P 值与 NES
 
-若 null effects 由外部模型产生，或同一批 permutations 需要复用于多套 edge sets，也可以用
-`make_null_edge_statistics()` 接入矩阵。默认流式路径没有改变；矩阵用法见
-[外部 observed / null effects](/tutorials/external-effects)。
+标准模式取累积曲线绝对值最大的有符号偏离；正负偏离绝对值并列时 ES=0、方向不明确、leading edge 为空。
 
-## P、NES 与联合 BH
+| 评分模式 | 用于 P 和 NES 的零分布 |
+| --- | --- |
+| standard，观测 ES>0 | 严格正的零分布 ES |
+| standard，观测 ES<0 | 严格负的零分布 ES |
+| standard，观测 ES=0 | P=1，NES 无定义，无方向尾部 |
+| 预先指定 positive 或 negative | 全部置换 ES，包括合法零值 |
 
-Observed ES 为正时只使用非负 null tail；为负时只使用非正 tail。经验 P 值采用 plus-one：
+记实际尾部数量为 $B_{tail}$，其中至少同样极端的数量为 $K$：
 
 $$
-p = \frac{1 + \#\{ES_0\text{ 至少与 }ES_{obs}\text{ 一样极端}\}}
-{1 + \#\{ES_0\text{ 与 }ES_{obs}\text{ 同方向}\}}.
+p = \frac{K+1}{B_{tail}+1}, \qquad
+p_{min} = \frac{1}{B_{tail}+1}.
 $$
 
-NES 用同方向 null ES 的平均绝对值归一化。随后，`lens_enrich` 对同一次调用中的全部
-`contrast × tested set` P 值做一次 Benjamini–Hochberg 校正。`family_name` 只是可读的审计标签，
-不会把分开运行的结果魔法般合并为一个 family。
+NES 是观测 ES 除以相应尾部 ES 的平均绝对值。无同方向尾部时 P=1、NES 无定义；零归一化尺度也不给出可解释 NES。结果表中的 n_null_positive、n_null_negative、n_null_zero 是互不重叠的计数，n_null_tail 是实际用于检验的数量，minimum_resolvable_p 给出分辨率。
 
-## 只有 edge statistics 时
+## 多重比较与解释
 
-`lens_edge_permute` 随机打乱 statistic 与 edge label 的对应关系。它是 competitive null，
-不会保留共享节点、空间邻近、拓扑结构或跨边协方差。没有个体数据时可以用它做受限推断，
-但不能把它描述成 subject-level reproduction test。完整写法见[汇总边统计量教程](/tutorials/edge-statistics)。
+一次 lens_enrich 联合校正全部纳入的“统计对比 × 边集合”。family_name 是名称，不能把分开运行的分析合并。集合可能重叠；BH 的一般理论保证需要相应依赖条件，不能由软件执行了 BH 就推得任意集合依赖下均控制 FDR。多个运行或事后选择集合的总检验家族需要由研究者预先规划。
+
+ES 使用集合内外的相对排序，不是集合内均值检验。正 ES 不保证所有成员的效应为正。集合外信号改变时，目标集合的 ES 和 P 也可能变化，详见[验证记录](/guide/validation)。
+
+## 只有观测统计量
+
+可先做[描述性富集](/tutorials/edge-statistics)。有适当外部零分布时，使用[外部结果接口](/tutorials/external-effects)。边标签置换随机打乱统计量与边身份，不保留共享节点、空间、拓扑和跨边协方差；只有这些边标签可交换的零模型符合研究问题时，才将它用于相应推断。
+
+计算时可以逐次产生零分布统计量。结果只保留每次置换各集合的 ES，便于核对 P、NES 和尾部数量，不必保存完整的边×置换矩阵。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Any
 
@@ -103,6 +104,8 @@ def _edge_result(
         "diagonal": diagonal,
         "design_data_hash": design.data_hash,
         "n_nonestimable_edges": int((~statistics.estimable).sum()),
+        "nonestimable_edge_ids": template.loc[~statistics.estimable, "edge_id"].tolist(),
+        "estimability_policy": "audit placeholders only; reject nonestimable edges in lens_stat",
     }
     metadata.update(extra_metadata or {})
     if numeric_template is not None and not include_audit_columns:
@@ -145,6 +148,7 @@ def lens_glm(
     _validate_glm_inputs(data, design, contrasts)
     output: dict[str, EdgeStatistics] = {}
     prepared_design = _prepare_glm_design(design.values)
+    data_hash = hashlib.sha256(np.ascontiguousarray(data).tobytes()).hexdigest()
     for name, contrast in contrasts.items():
         vector = contrast.resolve(design)
         statistics = glm_contrast_statistics(
@@ -165,7 +169,7 @@ def lens_glm(
             directed=directed,
             diagonal=diagonal,
             include_audit_columns=True,
-            extra_metadata={"source": "observed"},
+            extra_metadata={"source": "observed", "connectome_data_hash": data_hash},
         )
     return output
 
@@ -188,6 +192,8 @@ def _validate_blocks(blocks: Iterable[Any] | None, n_subjects: int) -> np.ndarra
         codes, _ = pd.factorize(pd.Series(values, dtype=object), sort=False)
     except TypeError as exc:
         raise ValueError("exchangeability_blocks values must be hashable") from exc
+    if len(np.unique(codes)) == n_subjects:
+        raise ValueError("exchangeability_blocks are all singletons; no row can be permuted")
     return np.asarray(codes, dtype=int)
 
 
@@ -229,6 +235,11 @@ def lens_fl_permute(
     )
     _validate_glm_inputs(data, design, contrasts)
     block_codes = _validate_blocks(exchangeability_blocks, len(data))
+    blocks_hash = (
+        None if block_codes is None
+        else hashlib.sha256(block_codes.astype("<i8").tobytes()).hexdigest()
+    )
+    data_hash = hashlib.sha256(np.ascontiguousarray(data).tobytes()).hexdigest()
     x = design.values
     prepared_design = _prepare_glm_design(x)
     numeric_template = _NumericEdgeTemplate(template)
@@ -236,6 +247,17 @@ def lens_fl_permute(
     for name, contrast in contrasts.items():
         vector = contrast.resolve(design)
         reduced_basis = null_space(vector.reshape(1, -1))
+        contrast_weights = vector @ prepared_design.pseudoinverse
+        groups = np.zeros(len(data), dtype=int) if block_codes is None else block_codes
+        tolerance = max(x.shape) * np.finfo(float).eps * np.max(np.abs(contrast_weights))
+        if all(
+            np.ptp(contrast_weights[groups == code]) <= tolerance
+            for code in np.unique(groups)
+        ):
+            raise ValueError(
+                f"contrast {name!r} is invariant under the permitted row permutations; "
+                "use a design-appropriate external null"
+            )
         reduced_design = x @ reduced_basis
         reduced_beta = np.linalg.pinv(reduced_design) @ data
         fitted = reduced_design @ reduced_beta
@@ -271,6 +293,8 @@ def lens_fl_permute(
                     "permutation_index": replicate,
                     "random_seed": random_state,
                     "exchangeability_blocks_used": block_codes is not None,
+                    "exchangeability_blocks_hash": blocks_hash,
+                    "connectome_data_hash": data_hash,
                 },
                 numeric_template=numeric_template,
             )
