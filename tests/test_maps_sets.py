@@ -498,7 +498,7 @@ def test_remote_resource_reads_are_verified_and_cached(monkeypatch, tmp_path: Pa
     first, origin = resource_module._read_file(
         "https://example.test/root",
         "data/maps.csv",
-        expected_sha256=checksum,
+        expected_sha256=checksum.upper(),
         cache_dir=tmp_path,
     )
     second, _ = resource_module._read_file(
@@ -510,6 +510,14 @@ def test_remote_resource_reads_are_verified_and_cached(monkeypatch, tmp_path: Pa
     assert first == second == payload
     assert origin == "https://example.test/root/data/maps.csv"
     assert len(calls) == 1
+    unused_cache = tmp_path / "unused-cache"
+    for _ in range(2):
+        downloaded, _ = resource_module._read_file(
+            "https://example.test/root", "manifest.json", cache_dir=unused_cache,
+        )
+        assert downloaded == payload
+    assert len(calls) == 3
+    assert not unused_cache.exists()
     with pytest.raises(ValueError, match="checksum mismatch"):
         resource_module._read_file(
             "https://example.test/root",

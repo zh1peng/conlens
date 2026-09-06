@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.1 - 2026-09-06
+
+- Compute design hashes and fixed design metadata once per GLM fit or
+  Freedman–Lane permutation run; design signatures no longer calculate a discarded
+  hash. Result metadata remains independently editable.
+- Remove an unreachable map-missingness check and a redundant private plan-cache
+  type check. Validate resource checksums at the file-loading boundary and skip
+  cache-path preparation for downloads without a checksum.
+- Move running-sum time and memory limits to an explicit benchmark while retaining
+  the large-array correctness test in the default suite.
+- Run lint and coverage on one CI matrix entry, keep tests on all six entries, and
+  remove the duplicate manual package-check workflow.
+- Preserve public APIs, identity hash fields, and statistical calculations.
+
 ## 2.3.0 - 2026-09-05
 
 - Fixed GLM contrast variance to use the same SVD pseudoinverse as coefficients,

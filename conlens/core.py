@@ -377,8 +377,6 @@ def _numeric_plan(
     cache_key = tuple((name, tuple(members)) for name, members in input_sets.items())
     cached = template.plans.get(cache_key)
     if cached is not None:
-        if not isinstance(cached, _NumericLensPlan):
-            raise RuntimeError("numeric LENS plan cache is corrupted")
         return cached
     frame = template.frame
     edge_ids = frame["edge_id"].astype(str).to_numpy(copy=True)

@@ -99,12 +99,11 @@ class DesignMatrix:
 
     def signature(self) -> dict[str, Any]:
         """Return the resampling-stable specification of the design."""
-        metadata = self.metadata()
-        metadata.pop("condition_number")
-        metadata.pop("n_observations")
-        metadata.pop("n_columns")
-        metadata.pop("design_data_hash")
-        return metadata
+        return {
+            **self._provenance,
+            "columns": list(self.columns),
+            "centering": self.centering,
+        }
 
 
 @dataclass(frozen=True, slots=True)

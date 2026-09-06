@@ -104,19 +104,19 @@ def _read_remote(
     cache_dir: Path,
 ) -> tuple[bytes, str]:
     url = _remote_url(source, relative)
-    expected = None if expected_sha256 is None else _validated_sha256(expected_sha256)
-    cache_key = expected or _sha256(url.encode("utf-8"))
-    cache_root = cache_dir.resolve()
-    cached = (cache_root / cache_key[:2] / cache_key).resolve()
-    try:
-        cached.relative_to(cache_root)
-    except ValueError as exc:
-        raise ValueError("cache entry escapes cache root") from exc
-    if expected is not None and cached.is_file():
-        payload = cached.read_bytes()
-        if _sha256(payload) == expected:
-            return payload, url
-        cached.unlink()
+    expected = expected_sha256
+    if expected is not None:
+        cache_root = cache_dir.resolve()
+        cached = (cache_root / expected[:2] / expected).resolve()
+        try:
+            cached.relative_to(cache_root)
+        except ValueError as exc:
+            raise ValueError("cache entry escapes cache root") from exc
+        if cached.is_file():
+            payload = cached.read_bytes()
+            if _sha256(payload) == expected:
+                return payload, url
+            cached.unlink()
 
     with urlopen(url, timeout=30) as response:  # noqa: S310 - URL scheme is restricted
         payload = response.read()

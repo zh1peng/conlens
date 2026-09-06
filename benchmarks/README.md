@@ -17,6 +17,10 @@ website numeric tables directly from the recorded results.
 
 ## Performance only
 
+Run `python -m benchmarks.benchmark_running_sum` to check time and peak memory for
+100,000 edges. The existing 5-second and 50-MiB limits are machine-dependent and
+are kept outside the default test suite; CI retains the large-array correctness test.
+
 `benchmark_null_path.py` compares the NumPy fast path with the materialized Pandas path that
 implements the ConLens 2.0.0 calculation. Both paths receive the same generated data and random
 seed. The script aborts unless their complete ES sequences are exactly equal according to

@@ -87,6 +87,14 @@ def test_glm_effect_sizes_use_full_model_residuals_and_fl_is_reproducible():
             assert list(left[name].table) == [
                 "node1", "node2", "edge_id", "canonical_edge_id", "statistic"
             ]
+            assert left[name].metadata["design"] == design.metadata()
+            assert left[name].metadata["analysis_signature"]["design"] == design.signature()
+
+    first[0]["age"].metadata["design"]["centering"]["age"] = -999
+    first[0]["age"].metadata["analysis_signature"]["design"]["columns"].clear()
+    assert first[1]["age"].metadata["design"] == design.metadata()
+    assert first[0]["g1_vs_control"].metadata["design"] == design.metadata()
+    assert first[1]["age"].metadata["analysis_signature"]["design"] == design.signature()
 
 
 def test_numpy_fl_lens_path_is_exactly_equal_to_materialized_pandas():

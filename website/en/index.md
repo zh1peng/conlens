@@ -14,4 +14,4 @@ The full English guide is being prepared. The [Chinese documentation](/) contain
 current tutorials, formulas, bootstrap workflow, and visualization examples.
 
 The [map-based edge-set tutorial](/en/tutorials/map-based-edge-sets) documents the complete ConLens
-2.3.0 API for PET abundance, scalar node distance, and multi-map node-profile similarity.
+2.3.1 API for PET abundance, scalar node distance, and multi-map node-profile similarity.

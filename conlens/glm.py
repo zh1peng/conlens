@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
@@ -71,7 +72,8 @@ def _edge_result(
     contrast_name: str,
     contrast: Contrast,
     contrast_vector: np.ndarray,
-    design: DesignMatrix,
+    design_metadata: dict[str, Any],
+    design_signature: dict[str, Any],
     node_order: list[Any],
     directed: bool,
     diagonal: bool,
@@ -91,10 +93,10 @@ def _edge_result(
         "statistic_name": statistic_name,
         "positive_direction": contrast.positive_direction,
         "residual_df": statistics.residual_df,
-        "design": design.metadata(),
+        "design": deepcopy(design_metadata),
         "analysis_signature": {
             "kind": "glm_contrast",
-            "design": design.signature(),
+            "design": deepcopy(design_signature),
             "contrast_name": contrast_name,
             "contrast_vector": contrast_vector.tolist(),
             "effect_size": contrast.effect_size,
@@ -102,7 +104,7 @@ def _edge_result(
         "node_order": node_order,
         "directed": directed,
         "diagonal": diagonal,
-        "design_data_hash": design.data_hash,
+        "design_data_hash": design_metadata["design_data_hash"],
         "n_nonestimable_edges": int((~statistics.estimable).sum()),
         "nonestimable_edge_ids": template.loc[~statistics.estimable, "edge_id"].tolist(),
         "estimability_policy": "audit placeholders only; reject nonestimable edges in lens_stat",
@@ -148,6 +150,8 @@ def lens_glm(
     _validate_glm_inputs(data, design, contrasts)
     output: dict[str, EdgeStatistics] = {}
     prepared_design = _prepare_glm_design(design.values)
+    design_metadata = design.metadata()
+    design_signature = design.signature()
     data_hash = hashlib.sha256(np.ascontiguousarray(data).tobytes()).hexdigest()
     for name, contrast in contrasts.items():
         vector = contrast.resolve(design)
@@ -164,7 +168,8 @@ def lens_glm(
             contrast_name=name,
             contrast=contrast,
             contrast_vector=vector,
-            design=design,
+            design_metadata=design_metadata,
+            design_signature=design_signature,
             node_order=node_order,
             directed=directed,
             diagonal=diagonal,
@@ -242,6 +247,8 @@ def lens_fl_permute(
     data_hash = hashlib.sha256(np.ascontiguousarray(data).tobytes()).hexdigest()
     x = design.values
     prepared_design = _prepare_glm_design(x)
+    design_metadata = design.metadata()
+    design_signature = design.signature()
     numeric_template = _NumericEdgeTemplate(template)
     prepared: dict[str, tuple[Contrast, np.ndarray, np.ndarray, np.ndarray]] = {}
     for name, contrast in contrasts.items():
@@ -282,7 +289,8 @@ def lens_fl_permute(
                 contrast_name=name,
                 contrast=contrast,
                 contrast_vector=vector,
-                design=design,
+                design_metadata=design_metadata,
+                design_signature=design_signature,
                 node_order=node_order,
                 directed=directed,
                 diagonal=diagonal,

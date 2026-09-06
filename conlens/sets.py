@@ -518,9 +518,7 @@ def make_profile_similarity_sets(
         raise ValueError("profile similarity requires at least two maps")
     numeric = pd.DataFrame(index=data.index)
     for map_name in data.columns:
-        values, missing_mask = _numeric_map(data[map_name], missing="raise")
-        if missing_mask.any():
-            raise ValueError("profile similarity does not support missing values")
+        values, _ = _numeric_map(data[map_name], missing="raise")
         numeric[map_name] = values
     if map_scaling == "zscore":
         standard_deviation = numeric.std(axis=0, ddof=0)
